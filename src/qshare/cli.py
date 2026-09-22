@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 import os
 import platform
@@ -16,12 +14,12 @@ import uuid
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional, Sequence, Tuple, Union
 
-DEFAULT_TTL_SECONDS = 30 * 60
+DEFAULT_TTL_SECONDS = 2 * 60 * 60
 
 
-def parse_duration(value: str | int | float) -> int:
+def parse_duration(value: Union[str, int, float]) -> int:
     """Convert duration strings like 30m, 90s, 2h to seconds."""
     if isinstance(value, (int, float)):
         seconds = int(value)
@@ -52,7 +50,7 @@ def parse_duration(value: str | int | float) -> int:
 def find_available_port(
     start_port: int = 20000,
     end_port: int = 65535,
-    used_ports: Iterable[int] | None = None,
+    used_ports: Optional[Iterable[int]] = None,
 ) -> int:
     """Return a free localhost port, avoiding the given ports."""
     blacklisted = set(used_ports or [])
@@ -73,7 +71,7 @@ def find_available_port(
     raise OSError(f"No free port found between {start_port} and {end_port}.")
 
 
-def extract_trycloudflare_url(output: str) -> str | None:
+def extract_trycloudflare_url(output: str) -> Optional[str]:
     match = re.search(r"https?://[A-Za-z0-9.-]+\.trycloudflare\.com", output)
     if match:
         return match.group(0)
@@ -91,7 +89,7 @@ class ShareHandler(SimpleHTTPRequestHandler):
         return
 
 
-def start_local_http_server(file_path: Path, port: int) -> tuple[ThreadingHTTPServer, threading.Thread]:
+def start_local_http_server(file_path: Path, port: int) -> Tuple[ThreadingHTTPServer, threading.Thread]:
     if not file_path.exists():
         raise FileNotFoundError(f"File does not exist: {file_path}")
     if not file_path.is_file():
@@ -151,7 +149,7 @@ def install_cloudflared_binary() -> str:
         return str(target)
     except Exception:
         if target.exists():
-            target.unlink(missing_ok=True)
+            target.unlink()
         raise
 
 
@@ -169,7 +167,7 @@ def ensure_cloudflared() -> str:
     return installed
 
 
-def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> tuple[subprocess.Popen[str], str]:
+def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> Tuple[subprocess.Popen, str]:
     cloudflared_path = ensure_cloudflared()
     logfile = Path(tempfile.gettempdir()) / f"qshare-{uuid.uuid4().hex}.log"
     process = subprocess.Popen(
@@ -211,7 +209,7 @@ def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> tuple[s
     raise TimeoutError(f"Timed out waiting for a public TryCloudflare URL in {timeout_seconds} seconds.")
 
 
-def stop_tunnel(process: subprocess.Popen[str]) -> None:
+def stop_tunnel(process: subprocess.Popen) -> None:
     if process.poll() is None:
         try:
             process.terminate()
@@ -223,7 +221,7 @@ def stop_tunnel(process: subprocess.Popen[str]) -> None:
                 pass
 
 
-def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: int | None = None) -> int:
+def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Optional[int] = None) -> int:
     source = Path(file_path).expanduser().resolve()
     if not source.exists():
         raise FileNotFoundError(f"File not found: {source}")
@@ -238,8 +236,8 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: int 
     print(f"Local HTTP URL: {local_url}")
     print(f"Waiting for public TryCloudflare URL (ttl={ttl_seconds}s)...")
 
-    tunnel_process: subprocess.Popen[str] | None = None
-    tunnel_url: str | None = None
+    tunnel_process = None
+    tunnel_url = None
     stop_event = threading.Event()
 
     def stop_all() -> None:
@@ -283,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-t",
         "--ttl",
-        default="30m",
+        default="2h",
         help="How long the tunnel remains active. Examples: 30m, 90s, 2h, or 600 (seconds).",
     )
     parser.add_argument(
@@ -293,12 +291,35 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional fixed port for the local HTTP server. A random free port is used when omitted.",
     )
+    parser.add_argument(
+        "-d",
+        "--daemon",
+        action="store_true",
+        help="Run the share process in the background and exit immediately.",
+    )
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.daemon:
+        cmd = [sys.executable, os.path.abspath(sys.argv[0]), args.file]
+        if args.ttl != "2h":
+            cmd.extend(["--ttl", str(args.ttl)])
+        if args.port is not None:
+            cmd.extend(["--port", str(args.port)])
+        with open(os.devnull, "wb") as devnull:
+            subprocess.Popen(
+                cmd,
+                stdin=devnull,
+                stdout=devnull,
+                stderr=devnull,
+                close_fds=True,
+                start_new_session=True,
+            )
+        return 0
 
     try:
         ttl_seconds = parse_duration(args.ttl)

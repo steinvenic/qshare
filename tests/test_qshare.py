@@ -4,6 +4,7 @@ import pytest
 
 from qshare.cli import (
     build_download_url,
+    build_parser,
     extract_trycloudflare_url,
     find_available_port,
     get_cloudflared_download_url,
@@ -42,6 +43,16 @@ def test_find_available_port_skips_occupied_ports():
 def test_extract_trycloudflare_url_from_cloudflared_output():
     log = """2025-03-04T10:00:00Z INF Quick Tunnel URL: https://abc123.trycloudflare.com"""
     assert extract_trycloudflare_url(log) == "https://abc123.trycloudflare.com"
+
+
+def test_parser_defaults_to_two_hour_ttl_and_supports_daemon_mode():
+    parser = build_parser()
+    args = parser.parse_args(["/tmp/demo.zip"])
+    assert args.ttl == "2h"
+    assert args.daemon is False
+
+    daemon_args = parser.parse_args(["/tmp/demo.zip", "--daemon"])
+    assert daemon_args.daemon is True
 
 
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
