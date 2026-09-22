@@ -12,11 +12,17 @@ Quickly share a local file via a public TryCloudflare tunnel.
 
 ## Requirements
 
-Install Cloudflared first:
+`cloudflared` does not ship as an official Python package on PyPI. Instead, qshare will automatically download the official Cloudflare tunnel binary when it is missing.
+
+If your network is limited or you want to use a mirror, set the environment variable before running qshare:
+
+```bash
+export CLOUDFLARED_DOWNLOAD_URL="https://example.com/mirror/cloudflared-linux-amd64"
+```
+
+If you want to install it manually for any reason, use:
 
 - https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-
-Ensure `cloudflared` is available in your `PATH`.
 
 ## Install
 
@@ -43,7 +49,7 @@ qshare /path/to/file.zip --ttl 900
 qshare /path/to/file.zip --port 8000
 ```
 
-The command starts a local HTTP server on a random free port, creates a temporary public URL with TryCloudflare, and keeps the tunnel alive for the configured duration.
+The command starts a local HTTP server on a random free port, creates a temporary public URL with TryCloudflare, and keeps the tunnel alive for the configured duration. If `cloudflared` is absent, qshare will fetch the official binary automatically into `~/.local/bin`.
 
 ## Build for PyPI
 

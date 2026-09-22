@@ -2,7 +2,13 @@ import socket
 
 import pytest
 
-from qshare.cli import extract_trycloudflare_url, find_available_port, parse_duration
+from qshare.cli import (
+    build_download_url,
+    extract_trycloudflare_url,
+    find_available_port,
+    get_cloudflared_download_url,
+    parse_duration,
+)
 
 
 def test_parse_duration_accepts_common_units():
@@ -36,3 +42,13 @@ def test_find_available_port_skips_occupied_ports():
 def test_extract_trycloudflare_url_from_cloudflared_output():
     log = """2025-03-04T10:00:00Z INF Quick Tunnel URL: https://abc123.trycloudflare.com"""
     assert extract_trycloudflare_url(log) == "https://abc123.trycloudflare.com"
+
+
+def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARED_DOWNLOAD_URL", "https://example.com/mirror/cloudflared-linux-amd64")
+    assert get_cloudflared_download_url() == "https://example.com/mirror/cloudflared-linux-amd64"
+
+
+def test_build_download_url_joins_base_and_filename():
+    assert build_download_url("https://abc.trycloudflare.com", "demo.zip") == "https://abc.trycloudflare.com/demo.zip"
+    assert build_download_url("https://abc.trycloudflare.com/", "/demo.zip") == "https://abc.trycloudflare.com/demo.zip"

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import os
+import platform
 import re
 import shutil
-import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.request
 import uuid
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -78,6 +80,12 @@ def extract_trycloudflare_url(output: str) -> str | None:
     return None
 
 
+def build_download_url(base_url: str, file_name: str) -> str:
+    cleaned_base = base_url.rstrip("/")
+    cleaned_name = file_name.lstrip("/")
+    return f"{cleaned_base}/{cleaned_name}"
+
+
 class ShareHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
@@ -106,19 +114,66 @@ def stop_local_http_server(server: ThreadingHTTPServer) -> None:
         pass
 
 
-def ensure_cloudflared() -> None:
-    if shutil.which("cloudflared") is None:
-        raise FileNotFoundError(
-            "cloudflared was not found. Install it first with:\n"
-            "  https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+def get_cloudflared_download_url() -> str:
+    override = os.getenv("CLOUDFLARED_DOWNLOAD_URL")
+    if override:
+        return override.strip()
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    mapping = {
+        ("linux", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+        ("linux", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+        ("linux", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
+        ("linux", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
+    }
+    key = (system, machine)
+    if key not in mapping:
+        raise RuntimeError(
+            f"Unsupported platform for automatic cloudflared install: {system}/{machine}. "
+            "Please install cloudflared manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
         )
+    return mapping[key]
+
+
+def install_cloudflared_binary() -> str:
+    target_dir = Path.home() / ".local" / "bin"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / "cloudflared"
+
+    if target.exists():
+        return str(target)
+
+    url = get_cloudflared_download_url()
+    try:
+        urllib.request.urlretrieve(url, str(target))
+        target.chmod(0o755)
+        return str(target)
+    except Exception:
+        if target.exists():
+            target.unlink(missing_ok=True)
+        raise
+
+
+def ensure_cloudflared() -> str:
+    binary_path = shutil.which("cloudflared")
+    if binary_path:
+        return binary_path
+
+    user_bin = Path.home() / ".local" / "bin" / "cloudflared"
+    if user_bin.exists():
+        return str(user_bin)
+
+    installed = install_cloudflared_binary()
+    os.environ["PATH"] = str(Path(installed).parent) + os.pathsep + os.environ.get("PATH", "")
+    return installed
 
 
 def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> tuple[subprocess.Popen[str], str]:
-    ensure_cloudflared()
+    cloudflared_path = ensure_cloudflared()
     logfile = Path(tempfile.gettempdir()) / f"qshare-{uuid.uuid4().hex}.log"
     process = subprocess.Popen(
-        ["cloudflared", "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
+        [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -201,7 +256,8 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: int 
 
     try:
         tunnel_process, tunnel_url = launch_trycloudflare_tunnel(local_url, timeout_seconds=min(ttl_seconds, 30))
-        print(f"Public URL: {tunnel_url}")
+        public_file_url = build_download_url(tunnel_url, source.name)
+        print(f"Public file URL: {public_file_url}")
         while not stop_event.is_set() and tunnel_process.poll() is None:
             time.sleep(0.5)
     except KeyboardInterrupt:
