@@ -268,10 +268,9 @@ def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
 
     print_qr_code("https://department.trycloudflare.com/file.zip")
     rows = capsys.readouterr().out.splitlines()[1:]
-    assert len(rows) == 4
-    assert all(len(row) == 8 for row in rows)
-    assert rows[0].startswith("    ")
-    assert rows[1].startswith("  ██")
+    assert len(rows) == 2
+    assert all(len(row) == 4 for row in rows)
+    assert all(set(row) <= set(" ▀▄█") for row in rows)
 
 
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):

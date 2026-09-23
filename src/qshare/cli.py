@@ -94,19 +94,26 @@ def print_qr_code(url: str) -> None:
     print("Scan this QR code to open the public file URL:")
     if os.name == "nt":
         # Windows' legacy console uses character cells that are considerably
-        # taller than they are wide.  qrcode.print_ascii() packs two QR rows
-        # into one character row, which makes its finder patterns visibly
-        # rectangular on that console.  Render one QR module per line and
-        # double each module horizontally so the modules remain square.
+        # taller than they are wide.  Render two QR modules vertically in a
+        # Unicode half-block character; this keeps modules approximately
+        # square while making the code substantially more compact.
         matrix = qr.get_matrix()
         border = 1
-        blank = "  "
-        solid = "██"
-        for row in range(-border, len(matrix) + border):
+        size = len(matrix) + border * 2
+
+        def dark(row: int, col: int) -> bool:
+            return (
+                0 <= row < len(matrix)
+                and 0 <= col < len(matrix)
+                and bool(matrix[row][col])
+            )
+
+        for row in range(0, size, 2):
             rendered = []
-            for col in range(-border, len(matrix) + border):
-                dark = 0 <= row < len(matrix) and 0 <= col < len(matrix) and matrix[row][col]
-                rendered.append(solid if dark else blank)
+            for col in range(size):
+                top = dark(row - border, col - border)
+                bottom = dark(row + 1 - border, col - border)
+                rendered.append("█" if top and bottom else "▀" if top else "▄" if bottom else " ")
             print("".join(rendered))
         return
     # Two QR rows per terminal row keeps the code compact and scannable.
