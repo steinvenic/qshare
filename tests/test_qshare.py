@@ -190,6 +190,7 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
 
     print_qr_code("https://department.trycloudflare.com/file.zip")
 
+    assert calls[0][1]["border"] == 0
     assert ("data", "https://department.trycloudflare.com/file.zip") in calls
     assert ("print", {"invert": True}) in calls
 
