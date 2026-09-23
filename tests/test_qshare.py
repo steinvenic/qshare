@@ -91,12 +91,13 @@ def test_run_share_uses_existing_process_when_detached(monkeypatch, tmp_path):
     assert detached_server["value"] is server
 
 
-def test_background_child_does_not_prompt_to_detach_again(monkeypatch, tmp_path):
+def test_background_child_does_not_prompt_to_detach_again(monkeypatch, tmp_path, capsys):
     file_path = tmp_path / "demo.txt"
     file_path.write_text("demo")
     server = object()
     thread = type("Thread", (), {"is_alive": lambda self: False})()
     asked = {"value": False}
+    qr_urls = []
 
     monkeypatch.setenv("QSHARE_BACKGROUND_CHILD", "1")
     monkeypatch.setattr("qshare.cli.start_local_http_server", lambda *_args, **_kwargs: (server, thread))
@@ -105,9 +106,13 @@ def test_background_child_does_not_prompt_to_detach_again(monkeypatch, tmp_path)
         lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: 0})(), "https://abc.trycloudflare.com"),
     )
     monkeypatch.setattr("qshare.cli.ask_background_mode", lambda: asked.__setitem__("value", True))
+    monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: qr_urls.append(url) or print("QR CODE"))
 
     assert run_share(str(file_path), ttl_seconds=60, port=12345) == 0
     assert asked["value"] is False
+    assert qr_urls == ["https://abc.trycloudflare.com/demo.txt"]
+    output = capsys.readouterr().out
+    assert output.index("PUBLIC FILE URL:") < output.index("QR CODE")
 
 
 def test_find_available_port_skips_occupied_ports():

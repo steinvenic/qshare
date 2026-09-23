@@ -341,6 +341,7 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         print("\n" + "=" * 72)
         print(f"PUBLIC FILE URL: {public_file_url}")
         print("=" * 72 + "\n", flush=True)
+        print_qr_code(public_file_url)
         # A detached child is already the background worker.  Prompting it
         # again (with stdin connected to DEVNULL) makes it take the
         # foreground path accidentally and, more importantly, used to make
