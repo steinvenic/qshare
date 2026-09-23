@@ -8,6 +8,7 @@ from qshare.cli import (
     extract_trycloudflare_url,
     find_available_port,
     get_cloudflared_download_url,
+    launch_trycloudflare_tunnel,
     parse_duration,
     run_share,
     should_run_in_background,
@@ -126,6 +127,66 @@ def test_find_available_port_skips_occupied_ports():
 def test_extract_trycloudflare_url_from_cloudflared_output():
     log = """2025-03-04T10:00:00Z INF Quick Tunnel URL: https://abc123.trycloudflare.com"""
     assert extract_trycloudflare_url(log) == "https://abc123.trycloudflare.com"
+
+
+def test_extract_trycloudflare_url_rejects_cloudflare_api_url():
+    assert extract_trycloudflare_url("https://api.trycloudflare.com") is None
+    assert extract_trycloudflare_url("http://department.trycloudflare.com") is None
+
+
+def test_tunnel_retries_after_cloudflare_api_url(monkeypatch):
+    class Output:
+        def __init__(self, lines):
+            self.lines = iter(lines)
+
+        def readline(self):
+            return next(self.lines, "")
+
+    class Process:
+        def __init__(self, lines):
+            self.stdout = Output(lines)
+
+        def poll(self):
+            return 0
+
+    processes = [
+        Process(["https://api.trycloudflare.com\n"]),
+        Process(["https://api.trycloudflare.com\n"]),
+        Process(["https://department.trycloudflare.com\n"]),
+    ]
+    monkeypatch.setattr("qshare.cli.ensure_cloudflared", lambda: "cloudflared")
+    monkeypatch.setattr("qshare.cli.subprocess.Popen", lambda *_args, **_kwargs: processes.pop(0))
+
+    process, url = launch_trycloudflare_tunnel("http://127.0.0.1:20000/file", timeout_seconds=30)
+
+    assert url == "https://department.trycloudflare.com"
+    assert process.poll() == 0
+
+
+def test_print_qr_code_renders_the_public_url(monkeypatch):
+    calls = []
+
+    class QRCode:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        def add_data(self, value):
+            calls.append(("data", value))
+
+        def make(self, **kwargs):
+            calls.append(("make", kwargs))
+
+        def print_ascii(self, **kwargs):
+            calls.append(("print", kwargs))
+
+    monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
+
+    from qshare.cli import print_qr_code
+
+    print_qr_code("https://department.trycloudflare.com/file.zip")
+
+    assert ("data", "https://department.trycloudflare.com/file.zip") in calls
+    assert ("print", {"invert": True}) in calls
 
 
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):

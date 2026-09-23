@@ -13,6 +13,7 @@ import time
 import tarfile
 import urllib.request
 import uuid
+import qrcode
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -74,9 +75,9 @@ def find_available_port(
 
 
 def extract_trycloudflare_url(output: str) -> Optional[str]:
-    match = re.search(r"https?://[A-Za-z0-9.-]+\.trycloudflare\.com", output)
-    if match:
-        return match.group(0)
+    for match in re.finditer(r"https://(?P<host>[A-Za-z0-9-]+\.trycloudflare\.com)", output, re.IGNORECASE):
+        if match.group("host").lower() != "api.trycloudflare.com":
+            return match.group(0)
     return None
 
 
@@ -84,6 +85,14 @@ def build_download_url(base_url: str, file_name: str) -> str:
     cleaned_base = base_url.rstrip("/")
     cleaned_name = file_name.lstrip("/")
     return f"{cleaned_base}/{cleaned_name}"
+
+
+def print_qr_code(url: str) -> None:
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(url)
+    qr.make(fit=True)
+    print("Scan this QR code to open the public file URL:")
+    qr.print_ascii(invert=True)
 
 
 class ShareHandler(SimpleHTTPRequestHandler):
@@ -160,6 +169,7 @@ def install_cloudflared_binary() -> str:
 
     url = get_cloudflared_download_url()
     try:
+        print("cloudflared was not found. Downloading the official binary...")
         if url.endswith(".tgz"):
             with tempfile.NamedTemporaryFile(suffix=".tgz", delete=False) as archive_file:
                 archive_path = Path(archive_file.name)
@@ -204,53 +214,45 @@ def ensure_cloudflared() -> str:
 
 def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> Tuple[subprocess.Popen, str]:
     cloudflared_path = ensure_cloudflared()
-    logfile = Path(tempfile.gettempdir()) / f"qshare-{uuid.uuid4().hex}.log"
-    kwargs = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.STDOUT,
-        "universal_newlines": True,
-        "bufsize": 1,
-    }
-    if os.name == "nt":
-        kwargs["creationflags"] = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            | getattr(subprocess, "DETACHED_PROCESS", 0)
-        )
-    process = subprocess.Popen(
-        [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
-        **kwargs,
-    )
-
-    if process.stdout is None:
-        raise RuntimeError("Unable to capture cloudflared output.")
-
     deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        line = process.stdout.readline()
-        if not line:
+    for attempt in range(3):
+        logfile = Path(tempfile.gettempdir()) / f"qshare-{uuid.uuid4().hex}.log"
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "universal_newlines": True,
+            "bufsize": 1,
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
+            )
+        process = subprocess.Popen(
+            [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
+            **kwargs,
+        )
+        if process.stdout is None:
+            raise RuntimeError("Unable to capture cloudflared output.")
+
+        attempt_deadline = min(deadline, time.monotonic() + 10)
+        while time.monotonic() < attempt_deadline:
+            line = process.stdout.readline()
+            if line:
+                url = extract_trycloudflare_url(line)
+                if url:
+                    return process, url
+                continue
             if process.poll() is not None:
-                output = ""
-                try:
-                    output = process.stdout.read()
-                except Exception:
-                    output = ""
-                raise RuntimeError(f"cloudflared exited before returning a tunnel URL.\n{output}")
+                break
             time.sleep(0.2)
-            continue
 
-        url = extract_trycloudflare_url(line)
-        if url:
-            return process, url
+        stop_tunnel(process)
+        if time.monotonic() < deadline and attempt < 2:
+            print("Cloudflare did not provide a valid public URL; retrying...")
 
-    if process.poll() is None:
-        try:
-            process.terminate()
-            process.wait(timeout=5)
-        except Exception:
-            pass
-
-    raise TimeoutError(f"Timed out waiting for a public TryCloudflare URL in {timeout_seconds} seconds.")
+    raise TimeoutError(f"Timed out waiting for a valid public TryCloudflare URL in {timeout_seconds} seconds.")
 
 
 def stop_tunnel(process: subprocess.Popen) -> None:

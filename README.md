@@ -53,9 +53,9 @@ qshare /path/to/file.zip --ttl 900
 qshare /path/to/file.zip --port 8000
 ```
 
-The command starts a local HTTP server on a random free port, creates a temporary public URL with TryCloudflare, and keeps the tunnel alive for the configured duration. If `cloudflared` is absent, qshare will fetch the official binary automatically into `~/.local/bin`. Automatic installation supports Cloudflare's current Linux (x86, x86_64, ARM, ARMHF, ARM64), Windows (x86, x86_64), and macOS (Intel, Apple Silicon) binary releases.
+The command starts a local HTTP server on a random free port, creates a temporary public URL with TryCloudflare, and keeps the tunnel alive for the configured duration. If `cloudflared` is absent, qshare announces that it is downloading the official binary into `~/.local/bin`. Automatic installation supports Cloudflare's current Linux (x86, x86_64, ARM, ARMHF, ARM64), Windows (x86, x86_64), and macOS (Intel, Apple Silicon) binary releases.
 
-After the public URL is printed prominently, qshare prompts on Unix-like systems: `Run in background? Press 'd' to detach, or press Enter to keep in the foreground.` Windows always runs in the foreground. When the TTL expires in foreground mode, qshare prints a notification and stops the share.
+After the public URL is printed prominently, qshare displays a terminal QR code for the same link. qshare accepts only a valid share hostname such as `https://department-specialists-excellence-savings.trycloudflare.com`; Cloudflare API URLs are rejected and the tunnel is retried. On Unix-like systems it then prompts: `Run in background? Press 'd' to detach, or press Enter to keep in the foreground.` Windows always runs in the foreground. When the TTL expires in foreground mode, qshare prints a notification and stops the share.
 
 ## Build for PyPI
 
