@@ -2,6 +2,7 @@ import argparse
 import os
 import platform
 import re
+import signal
 import shutil
 import socket
 import subprocess
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+import tarfile
 import urllib.request
 import uuid
 from functools import partial
@@ -122,12 +124,22 @@ def get_cloudflared_download_url() -> str:
     mapping = {
         ("linux", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
         ("linux", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+        ("linux", "i386"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386",
+        ("linux", "i686"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386",
         ("linux", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
         ("linux", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
+        ("linux", "armv6l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm",
+        ("linux", "armv7l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-armhf",
+        ("linux", "armv8l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-armhf",
         ("windows", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
         ("windows", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        ("windows", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe",
-        ("windows", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe",
+        ("windows", "x86"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
+        ("windows", "i386"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
+        ("windows", "i686"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
+        ("darwin", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
+        ("darwin", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
+        ("darwin", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz",
+        ("darwin", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz",
     }
     key = (system, machine)
     if key not in mapping:
@@ -141,14 +153,32 @@ def get_cloudflared_download_url() -> str:
 def install_cloudflared_binary() -> str:
     target_dir = Path.home() / ".local" / "bin"
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / "cloudflared"
+    target = target_dir / ("cloudflared.exe" if os.name == "nt" else "cloudflared")
 
     if target.exists():
         return str(target)
 
     url = get_cloudflared_download_url()
     try:
-        urllib.request.urlretrieve(url, str(target))
+        if url.endswith(".tgz"):
+            with tempfile.NamedTemporaryFile(suffix=".tgz", delete=False) as archive_file:
+                archive_path = Path(archive_file.name)
+            try:
+                urllib.request.urlretrieve(url, str(archive_path))
+                with tarfile.open(str(archive_path), "r:gz") as archive:
+                    member = archive.getmember("cloudflared")
+                    source = archive.extractfile(member)
+                    if source is None:
+                        raise RuntimeError("cloudflared archive does not contain its binary.")
+                    with source, target.open("wb") as destination:
+                        shutil.copyfileobj(source, destination)
+            finally:
+                try:
+                    archive_path.unlink()
+                except OSError:
+                    pass
+        else:
+            urllib.request.urlretrieve(url, str(target))
         if os.name != "nt":
             target.chmod(0o755)
         return str(target)
@@ -163,7 +193,7 @@ def ensure_cloudflared() -> str:
     if binary_path:
         return binary_path
 
-    user_bin = Path.home() / ".local" / "bin" / "cloudflared"
+    user_bin = Path.home() / ".local" / "bin" / ("cloudflared.exe" if os.name == "nt" else "cloudflared")
     if user_bin.exists():
         return str(user_bin)
 
@@ -226,6 +256,34 @@ def stop_tunnel(process: subprocess.Popen) -> None:
                 pass
 
 
+class DetachedTunnelProcess:
+    """Minimal Popen-compatible handle for an inherited orphaned tunnel."""
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+
+    def poll(self) -> Optional[int]:
+        try:
+            os.kill(self.pid, 0)
+        except OSError:
+            return 0
+        return None
+
+    def terminate(self) -> None:
+        os.kill(self.pid, signal.SIGTERM)
+
+    def wait(self, timeout: Optional[float] = None) -> int:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self.poll() is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(["cloudflared"], timeout)
+            time.sleep(0.1)
+        return 0
+
+    def kill(self) -> None:
+        os.kill(self.pid, signal.SIGKILL)
+
+
 def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Optional[int] = None) -> int:
     source = Path(file_path).expanduser().resolve()
     if not source.exists():
@@ -262,13 +320,31 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         tunnel_process, tunnel_url = launch_trycloudflare_tunnel(local_url, timeout_seconds=min(ttl_seconds, 30))
         public_file_url = build_download_url(tunnel_url, source.name)
         print(f"Public file URL: {public_file_url}")
-        if ask_background_mode():
-            detached = True
-            background_argv = [str(source)]
-            background_argv.extend(["--ttl", str(ttl_seconds)])
-            if port is not None:
-                background_argv.extend(["--port", str(port)])
-            return start_background_process(background_argv)
+        # A detached child is already the background worker.  Prompting it
+        # again (with stdin connected to DEVNULL) makes it take the
+        # foreground path accidentally and, more importantly, used to make
+        # the hand-off look as if the original service had simply died.
+        if os.environ.get("QSHARE_BACKGROUND_CHILD") != "1" and ask_background_mode():
+            handoff = detach_existing_process(server)
+            if handoff is True:
+                # Parent exits, while the child keeps the inherited server
+                # socket and cloudflared process (therefore the same URL).
+                detached = True
+                return 0
+            if handoff is None:
+                # Windows and other non-fork platforms retain the old
+                # independent-worker fallback.
+                detached = True
+                background_argv = [str(source), "--ttl", str(ttl_seconds)]
+                if port is not None:
+                    background_argv.extend(["--port", str(port)])
+                return start_background_process(background_argv)
+            # Child: the pre-fork timer thread no longer exists, so recreate
+            # it before entering the normal lifetime loop.
+            tunnel_process = DetachedTunnelProcess(tunnel_process.pid)
+            timer = threading.Timer(ttl_seconds, stop_all)
+            timer.daemon = True
+            timer.start()
         while not stop_event.is_set() and tunnel_process.poll() is None:
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -318,8 +394,11 @@ def start_background_process(argv: List[str]) -> int:
     env["QSHARE_BACKGROUND_CHILD"] = "1"
     kwargs = {
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        # Keep the child's status and (most importantly) its replacement
+        # public URL visible to the user.  The parent URL belongs to the
+        # short-lived process and cannot remain valid after hand-off.
+        "stdout": None,
+        "stderr": None,
         "env": env,
     }
     if os.name == "nt":
@@ -330,6 +409,33 @@ def start_background_process(argv: List[str]) -> int:
     subprocess.Popen(cmd, **kwargs)
     print("qshare started in background.")
     return 0
+
+
+def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
+    """Detach while retaining the existing HTTP socket and tunnel process.
+
+    Returns True in the short-lived parent, False in the detached child, and
+    None on platforms without fork support.
+    """
+    if not hasattr(os, "fork"):
+        return None
+    child_pid = os.fork()
+    if child_pid:
+        return True
+
+    # The serving thread does not survive fork.  Reuse the inherited socket
+    # and start a replacement thread; the cloudflared Popen process is also
+    # inherited, so its public hostname remains unchanged.
+    os.setsid()
+    try:
+        with open(os.devnull, "rb") as null_in, open(os.devnull, "ab") as null_out:
+            os.dup2(null_in.fileno(), sys.stdin.fileno())
+            os.dup2(null_out.fileno(), sys.stdout.fileno())
+            os.dup2(null_out.fileno(), sys.stderr.fileno())
+    except (OSError, ValueError):
+        pass
+    threading.Thread(target=server.serve_forever, name="qshare-http", daemon=True).start()
+    return False
 
 
 def ask_background_mode() -> bool:

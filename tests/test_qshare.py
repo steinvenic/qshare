@@ -54,6 +54,7 @@ def test_run_share_does_not_stop_server_when_detached(monkeypatch, tmp_path):
         lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: None})(), "https://abc.trycloudflare.com"),
     )
     monkeypatch.setattr("qshare.cli.ask_background_mode", lambda: True)
+    monkeypatch.setattr("qshare.cli.detach_existing_process", lambda *_args, **_kwargs: True)
     monkeypatch.setattr("qshare.cli.start_background_process", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr("qshare.cli.stop_local_http_server", lambda *_args, **_kwargs: stop_called.__setitem__("value", True))
 
@@ -61,6 +62,51 @@ def test_run_share_does_not_stop_server_when_detached(monkeypatch, tmp_path):
 
     assert result == 0
     assert stop_called["value"] is False
+
+
+def test_run_share_uses_existing_process_when_detached(monkeypatch, tmp_path):
+    file_path = tmp_path / "demo.txt"
+    file_path.write_text("demo")
+    server = object()
+    thread = type("Thread", (), {"is_alive": lambda self: False})()
+    detached_server = {"value": None}
+
+    monkeypatch.setattr("qshare.cli.start_local_http_server", lambda *_args, **_kwargs: (server, thread))
+    monkeypatch.setattr(
+        "qshare.cli.launch_trycloudflare_tunnel",
+        lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: None})(), "https://abc.trycloudflare.com"),
+    )
+    monkeypatch.setattr("qshare.cli.ask_background_mode", lambda: True)
+    monkeypatch.setattr(
+        "qshare.cli.detach_existing_process",
+        lambda value: detached_server.__setitem__("value", value) or True,
+    )
+    monkeypatch.setattr(
+        "qshare.cli.start_background_process",
+        lambda *_args, **_kwargs: pytest.fail("should not start a replacement process"),
+    )
+
+    assert run_share(str(file_path), ttl_seconds=60, port=12345) == 0
+    assert detached_server["value"] is server
+
+
+def test_background_child_does_not_prompt_to_detach_again(monkeypatch, tmp_path):
+    file_path = tmp_path / "demo.txt"
+    file_path.write_text("demo")
+    server = object()
+    thread = type("Thread", (), {"is_alive": lambda self: False})()
+    asked = {"value": False}
+
+    monkeypatch.setenv("QSHARE_BACKGROUND_CHILD", "1")
+    monkeypatch.setattr("qshare.cli.start_local_http_server", lambda *_args, **_kwargs: (server, thread))
+    monkeypatch.setattr(
+        "qshare.cli.launch_trycloudflare_tunnel",
+        lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: 0})(), "https://abc.trycloudflare.com"),
+    )
+    monkeypatch.setattr("qshare.cli.ask_background_mode", lambda: asked.__setitem__("value", True))
+
+    assert run_share(str(file_path), ttl_seconds=60, port=12345) == 0
+    assert asked["value"] is False
 
 
 def test_find_available_port_skips_occupied_ports():
@@ -85,6 +131,27 @@ def test_extract_trycloudflare_url_from_cloudflared_output():
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
     monkeypatch.setenv("CLOUDFLARED_DOWNLOAD_URL", "https://example.com/mirror/cloudflared-linux-amd64")
     assert get_cloudflared_download_url() == "https://example.com/mirror/cloudflared-linux-amd64"
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "asset"),
+    [
+        ("Linux", "i686", "cloudflared-linux-386"),
+        ("Linux", "armv6l", "cloudflared-linux-arm"),
+        ("Linux", "armv7l", "cloudflared-linux-armhf"),
+        ("Linux", "aarch64", "cloudflared-linux-arm64"),
+        ("Windows", "x86", "cloudflared-windows-386.exe"),
+        ("Windows", "AMD64", "cloudflared-windows-amd64.exe"),
+        ("Darwin", "x86_64", "cloudflared-darwin-amd64.tgz"),
+        ("Darwin", "arm64", "cloudflared-darwin-arm64.tgz"),
+    ],
+)
+def test_get_cloudflared_download_url_supports_published_architectures(monkeypatch, system, machine, asset):
+    monkeypatch.delenv("CLOUDFLARED_DOWNLOAD_URL", raising=False)
+    monkeypatch.setattr("qshare.cli.platform.system", lambda: system)
+    monkeypatch.setattr("qshare.cli.platform.machine", lambda: machine)
+
+    assert get_cloudflared_download_url().endswith(asset)
 
 
 def test_build_download_url_joins_base_and_filename():
