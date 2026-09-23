@@ -1,0 +1,94 @@
+"""Build qshare wheels containing the matching cloudflared executable.
+
+Run after ``uv build``:
+    python scripts/build_platform_wheels.py --assets-dir /path/to/cloudflared-assets
+"""
+import argparse
+import base64
+import csv
+import hashlib
+import io
+import shutil
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path
+
+
+SPECS = [
+    ("cloudflared-linux-386", "cloudflared", "manylinux_2_17_i686"),
+    ("cloudflared-linux-amd64", "cloudflared", "manylinux_2_17_x86_64"),
+    ("cloudflared-linux-arm", "cloudflared", "linux_armv6l"),
+    ("cloudflared-linux-armhf", "cloudflared", "manylinux_2_17_armv7l"),
+    ("cloudflared-linux-arm64", "cloudflared", "manylinux_2_17_aarch64"),
+    ("cloudflared-windows-386.exe", "cloudflared.exe", "win32"),
+    ("cloudflared-windows-amd64.exe", "cloudflared.exe", "win_amd64"),
+    ("cloudflared-darwin-amd64.tgz", "cloudflared", "macosx_10_13_x86_64"),
+    ("cloudflared-darwin-arm64.tgz", "cloudflared", "macosx_11_0_arm64"),
+]
+
+
+def digest(data):
+    return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
+
+
+def extract_asset(asset, output):
+    if asset.suffix != ".tgz":
+        shutil.copyfile(str(asset), str(output))
+        return
+    with tarfile.open(str(asset), "r:gz") as archive:
+        source = archive.extractfile("cloudflared")
+        if source is None:
+            raise RuntimeError("cloudflared archive does not contain its binary")
+        with output.open("wb") as destination:
+            shutil.copyfileobj(source, destination)
+
+
+def make_wheel(base_wheel, binary, filename, tag, dist_dir):
+    with zipfile.ZipFile(str(base_wheel)) as source:
+        files = {name: source.read(name) for name in source.namelist() if not name.endswith("/RECORD")}
+    wheel_path = next(name for name in files if name.endswith(".dist-info/WHEEL"))
+    record_path = wheel_path.rsplit("/", 1)[0] + "/RECORD"
+    wheel_lines = [line for line in files[wheel_path].decode("utf-8").splitlines() if not line.startswith(("Root-Is-Purelib:", "Tag:"))]
+    wheel_lines.extend(["Root-Is-Purelib: false", "Tag: py3-none-" + tag, ""])
+    files[wheel_path] = "\n".join(wheel_lines).encode("utf-8")
+    files["qshare/_binaries/" + filename] = binary.read_bytes()
+    record = io.StringIO()
+    writer = csv.writer(record, lineterminator="\n")
+    for name in sorted(files):
+        writer.writerow([name, digest(files[name]), str(len(files[name]))])
+    writer.writerow([record_path, "", ""])
+    files[record_path] = record.getvalue().encode("utf-8")
+    with zipfile.ZipFile(str(dist_dir / (base_wheel.stem.replace("py3-none-any", "py3-none-" + tag) + ".whl")), "w", zipfile.ZIP_DEFLATED) as output:
+        for name, content in files.items():
+            output.writestr(name, content)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--assets-dir", required=True)
+    parser.add_argument("--dist-dir", default="dist")
+    args = parser.parse_args()
+    dist_dir = Path(args.dist_dir)
+    assets_dir = Path(args.assets_dir)
+    if not assets_dir.is_dir():
+        raise RuntimeError("Assets directory does not exist: {}".format(assets_dir))
+    base_wheels = list(dist_dir.glob("qshare-*-py3-none-any.whl"))
+    if len(base_wheels) != 1:
+        raise RuntimeError("Build exactly one universal qshare wheel before running this script.")
+    with tempfile.TemporaryDirectory() as temporary:
+        temporary_dir = Path(temporary)
+        for asset_name, binary_name, tag in SPECS:
+            asset = assets_dir / asset_name
+            if not asset.is_file():
+                raise RuntimeError("Missing cloudflared asset: {}".format(asset))
+            print("Bundling", asset_name)
+            binary = temporary_dir / (tag + "-" + binary_name)
+            extract_asset(asset, binary)
+            if binary.stat().st_size < 1024 * 1024:
+                raise RuntimeError("Downloaded {} is not a cloudflared binary.".format(asset_name))
+            make_wheel(base_wheels[0], binary, binary_name, tag, dist_dir)
+
+
+if __name__ == "__main__":
+    main()

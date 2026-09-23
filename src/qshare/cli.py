@@ -1,6 +1,5 @@
 import argparse
 import os
-import platform
 import re
 import signal
 import shutil
@@ -10,8 +9,6 @@ import sys
 import tempfile
 import threading
 import time
-import tarfile
-import urllib.request
 import uuid
 import qrcode
 from functools import partial
@@ -127,40 +124,15 @@ def stop_local_http_server(server: ThreadingHTTPServer) -> None:
         pass
 
 
-def get_cloudflared_download_url() -> str:
-    override = os.getenv("CLOUDFLARED_DOWNLOAD_URL")
-    if override:
-        return override.strip()
-
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    mapping = {
-        ("linux", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-        ("linux", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
-        ("linux", "i386"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386",
-        ("linux", "i686"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386",
-        ("linux", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
-        ("linux", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
-        ("linux", "armv6l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm",
-        ("linux", "armv7l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-armhf",
-        ("linux", "armv8l"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-armhf",
-        ("windows", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        ("windows", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-        ("windows", "x86"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
-        ("windows", "i386"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
-        ("windows", "i686"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-386.exe",
-        ("darwin", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        ("darwin", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz",
-        ("darwin", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz",
-        ("darwin", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz",
-    }
-    key = (system, machine)
-    if key not in mapping:
+def get_bundled_cloudflared_binary() -> Path:
+    name = "cloudflared.exe" if os.name == "nt" else "cloudflared"
+    bundled = Path(__file__).resolve().parent / "_binaries" / name
+    if not bundled.is_file():
         raise RuntimeError(
-            f"Unsupported platform for automatic cloudflared install: {system}/{machine}. "
-            "Please install cloudflared manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+            "This qshare installation has no bundled cloudflared binary for this platform. "
+            "Install qshare from PyPI on a supported platform, or install cloudflared yourself and add it to PATH."
         )
-    return mapping[key]
+    return bundled
 
 
 def install_cloudflared_binary() -> str:
@@ -171,28 +143,9 @@ def install_cloudflared_binary() -> str:
     if target.exists():
         return str(target)
 
-    url = get_cloudflared_download_url()
     try:
-        print("cloudflared was not found. Downloading the official binary...")
-        if url.endswith(".tgz"):
-            with tempfile.NamedTemporaryFile(suffix=".tgz", delete=False) as archive_file:
-                archive_path = Path(archive_file.name)
-            try:
-                urllib.request.urlretrieve(url, str(archive_path))
-                with tarfile.open(str(archive_path), "r:gz") as archive:
-                    member = archive.getmember("cloudflared")
-                    source = archive.extractfile(member)
-                    if source is None:
-                        raise RuntimeError("cloudflared archive does not contain its binary.")
-                    with source, target.open("wb") as destination:
-                        shutil.copyfileobj(source, destination)
-            finally:
-                try:
-                    archive_path.unlink()
-                except OSError:
-                    pass
-        else:
-            urllib.request.urlretrieve(url, str(target))
+        print("cloudflared was not found. Installing the binary bundled with qshare...")
+        shutil.copyfile(str(get_bundled_cloudflared_binary()), str(target))
         if os.name != "nt":
             target.chmod(0o755)
         return str(target)

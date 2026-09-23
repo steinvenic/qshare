@@ -1,4 +1,5 @@
 import socket
+from pathlib import Path
 
 import pytest
 
@@ -7,7 +8,8 @@ from qshare.cli import (
     build_parser,
     extract_trycloudflare_url,
     find_available_port,
-    get_cloudflared_download_url,
+    get_bundled_cloudflared_binary,
+    install_cloudflared_binary,
     launch_trycloudflare_tunnel,
     parse_duration,
     run_share,
@@ -195,30 +197,23 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
     assert ("print", {"invert": True}) in calls
 
 
-def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
-    monkeypatch.setenv("CLOUDFLARED_DOWNLOAD_URL", "https://example.com/mirror/cloudflared-linux-amd64")
-    assert get_cloudflared_download_url() == "https://example.com/mirror/cloudflared-linux-amd64"
+def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
+    bundled = tmp_path / "bundled-cloudflared"
+    bundled.write_bytes(b"cloudflared")
+    monkeypatch.setattr("qshare.cli.Path.home", lambda: tmp_path)
+    monkeypatch.setattr("qshare.cli.get_bundled_cloudflared_binary", lambda: bundled)
+
+    installed = install_cloudflared_binary()
+
+    assert Path(installed).read_bytes() == b"cloudflared"
+    assert "Installing the binary bundled with qshare" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(
-    ("system", "machine", "asset"),
-    [
-        ("Linux", "i686", "cloudflared-linux-386"),
-        ("Linux", "armv6l", "cloudflared-linux-arm"),
-        ("Linux", "armv7l", "cloudflared-linux-armhf"),
-        ("Linux", "aarch64", "cloudflared-linux-arm64"),
-        ("Windows", "x86", "cloudflared-windows-386.exe"),
-        ("Windows", "AMD64", "cloudflared-windows-amd64.exe"),
-        ("Darwin", "x86_64", "cloudflared-darwin-amd64.tgz"),
-        ("Darwin", "arm64", "cloudflared-darwin-arm64.tgz"),
-    ],
-)
-def test_get_cloudflared_download_url_supports_published_architectures(monkeypatch, system, machine, asset):
-    monkeypatch.delenv("CLOUDFLARED_DOWNLOAD_URL", raising=False)
-    monkeypatch.setattr("qshare.cli.platform.system", lambda: system)
-    monkeypatch.setattr("qshare.cli.platform.machine", lambda: machine)
+def test_get_bundled_cloudflared_binary_requires_platform_wheel(monkeypatch, tmp_path):
+    monkeypatch.setattr("qshare.cli.Path.resolve", lambda self: tmp_path / "cli.py")
 
-    assert get_cloudflared_download_url().endswith(asset)
+    with pytest.raises(RuntimeError, match="no bundled cloudflared binary"):
+        get_bundled_cloudflared_binary()
 
 
 def test_build_download_url_joins_base_and_filename():
