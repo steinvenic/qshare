@@ -80,47 +80,6 @@ def extract_trycloudflare_url(output: str) -> Optional[str]:
     return None
 
 
-def copy_to_clipboard(text: str) -> bool:
-    """Copy text to the native clipboard when a system backend is available."""
-    try:
-        if os.name == "nt":
-            import ctypes
-
-            CF_UNICODETEXT = 13
-            kernel32 = ctypes.windll.kernel32
-            user32 = ctypes.windll.user32
-            if not user32.OpenClipboard(None):
-                return False
-            try:
-                user32.EmptyClipboard()
-                data = ctypes.create_unicode_buffer(text)
-                handle = kernel32.GlobalAlloc(0x0002, ctypes.sizeof(data))
-                if not handle:
-                    return False
-                ctypes.memmove(handle, ctypes.addressof(data), ctypes.sizeof(data))
-                if not user32.SetClipboardData(CF_UNICODETEXT, handle):
-                    kernel32.GlobalFree(handle)
-                    return False
-                return True
-            finally:
-                user32.CloseClipboard()
-
-        if platform.system().lower() == "darwin":
-            command = ["pbcopy"]
-        elif shutil.which("wl-copy"):
-            command = ["wl-copy"]
-        elif shutil.which("xclip"):
-            command = ["xclip", "-selection", "clipboard"]
-        elif shutil.which("xsel"):
-            command = ["xsel", "--clipboard", "--input"]
-        else:
-            return False
-        subprocess.run(command, input=text, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
 def build_download_url(base_url: str, file_name: str) -> str:
     cleaned_base = base_url.rstrip("/")
     cleaned_name = file_name.lstrip("/")
@@ -353,6 +312,8 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
     tunnel_url = None
     stop_event = threading.Event()
 
+    detached = False
+
     def stop_all() -> None:
         stop_event.set()
         if tunnel_process is not None:
@@ -361,24 +322,26 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         if server_thread.is_alive():
             server_thread.join(timeout=2)
 
-    timer = threading.Timer(ttl_seconds, stop_all)
+    def expire() -> None:
+        if not detached:
+            print("TTL expired; the public share has stopped.", flush=True)
+        stop_all()
+
+    timer = threading.Timer(ttl_seconds, expire)
     timer.daemon = True
     timer.start()
-    detached = False
 
     try:
         tunnel_process, tunnel_url = launch_trycloudflare_tunnel(local_url, timeout_seconds=min(ttl_seconds, 30))
         public_file_url = build_download_url(tunnel_url, source.name)
-        print(f"Public file URL: {public_file_url}")
-        if copy_to_clipboard(public_file_url):
-            print("Public URL copied to clipboard.")
-        else:
-            print("Could not copy the public URL to clipboard; please copy it manually.")
+        print("\n" + "=" * 72)
+        print(f"PUBLIC FILE URL: {public_file_url}")
+        print("=" * 72 + "\n", flush=True)
         # A detached child is already the background worker.  Prompting it
         # again (with stdin connected to DEVNULL) makes it take the
         # foreground path accidentally and, more importantly, used to make
         # the hand-off look as if the original service had simply died.
-        if os.environ.get("QSHARE_BACKGROUND_CHILD") != "1" and ask_background_mode():
+        if os.name != "nt" and os.environ.get("QSHARE_BACKGROUND_CHILD") != "1" and ask_background_mode():
             handoff = detach_existing_process(server)
             if handoff is True:
                 # Parent exits, while the child keeps the inherited server
@@ -403,8 +366,9 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
                 return start_background_process(background_argv)
             # Child: the pre-fork timer thread no longer exists, so recreate
             # it before entering the normal lifetime loop.
+            detached = True
             tunnel_process = DetachedTunnelProcess(tunnel_process.pid)
-            timer = threading.Timer(ttl_seconds, stop_all)
+            timer = threading.Timer(ttl_seconds, expire)
             timer.daemon = True
             timer.start()
         while not stop_event.is_set() and tunnel_process.poll() is None:

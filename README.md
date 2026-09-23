@@ -9,7 +9,6 @@ Quickly share a local file via a public TryCloudflare tunnel.
 - Create a public TryCloudflare URL for the file
 - Support a default lifetime of 2 hours, adjustable via CLI arguments
 - Works on Linux and Windows, with automatic cloudflared download support
-- Run in the background via an interactive detach prompt when needed
 - Ready for uv-managed development and PyPI packaging
 
 ## Requirements
@@ -56,7 +55,7 @@ qshare /path/to/file.zip --port 8000
 
 The command starts a local HTTP server on a random free port, creates a temporary public URL with TryCloudflare, and keeps the tunnel alive for the configured duration. If `cloudflared` is absent, qshare will fetch the official binary automatically into `~/.local/bin`. Automatic installation supports Cloudflare's current Linux (x86, x86_64, ARM, ARMHF, ARM64), Windows (x86, x86_64), and macOS (Intel, Apple Silicon) binary releases.
 
-After the public URL is printed, qshare will prompt in the terminal: `Run in background? Press 'd' to detach, or press Enter to keep in the foreground.` On Unix-like systems, detach retains the active local server and tunnel, so the public URL does not change. This keeps the URL visible and lets the user choose a background run without a dedicated `-d` flag.
+After the public URL is printed prominently, qshare prompts on Unix-like systems: `Run in background? Press 'd' to detach, or press Enter to keep in the foreground.` Windows always runs in the foreground. When the TTL expires in foreground mode, qshare prints a notification and stops the share.
 
 ## Build for PyPI
 
