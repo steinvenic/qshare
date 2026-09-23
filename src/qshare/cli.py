@@ -386,12 +386,13 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
                 detached = True
                 return 0
             if handoff is None:
-                # Keep the current process alive on Windows by releasing its
-                # console.  This preserves both the listening socket and the
-                # existing cloudflared process (and therefore its hostname).
+                # Windows cannot safely detach this interpreter from its
+                # console while retaining the inherited server/tunnel. Keep
+                # this process running instead of launching a replacement
+                # qshare (which would change the tunnel URL).
                 if os.name == "nt":
-                    detach_windows_console()
                     detached = True
+                    print("Running in background mode; keep this window open to retain the same URL.")
                     # Fall through to the normal lifetime loop.
                 # Other non-fork platforms retain the independent-worker
                 # fallback.
@@ -499,22 +500,6 @@ def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
         pass
     threading.Thread(target=server.serve_forever, name="qshare-http", daemon=True).start()
     return False
-
-
-def detach_windows_console() -> None:
-    """Release qshare's console attachment without hiding the user's cmd."""
-    import ctypes
-
-    try:
-        ctypes.windll.kernel32.FreeConsole()
-    except (AttributeError, OSError):
-        return
-    for stream_name, mode in (("stdin", "r"), ("stdout", "a"), ("stderr", "a")):
-        try:
-            stream = open(os.devnull, mode)
-            setattr(sys, stream_name, stream)
-        except OSError:
-            pass
 
 
 def ask_background_mode() -> bool:
