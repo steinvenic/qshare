@@ -14,7 +14,7 @@ import uuid
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Tuple, Union
+from typing import Iterable, List, Optional, Tuple, Union
 
 DEFAULT_TTL_SECONDS = 2 * 60 * 60
 
@@ -124,6 +124,10 @@ def get_cloudflared_download_url() -> str:
         ("linux", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
         ("linux", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
         ("linux", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64",
+        ("windows", "x86_64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        ("windows", "amd64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        ("windows", "aarch64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe",
+        ("windows", "arm64"): "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-arm64.exe",
     }
     key = (system, machine)
     if key not in mapping:
@@ -145,7 +149,8 @@ def install_cloudflared_binary() -> str:
     url = get_cloudflared_download_url()
     try:
         urllib.request.urlretrieve(url, str(target))
-        target.chmod(0o755)
+        if os.name != "nt":
+            target.chmod(0o755)
         return str(target)
     except Exception:
         if target.exists():
@@ -174,7 +179,7 @@ def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> Tuple[s
         [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        universal_newlines=True,
         bufsize=1,
     )
 
@@ -251,11 +256,19 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
     timer = threading.Timer(ttl_seconds, stop_all)
     timer.daemon = True
     timer.start()
+    detached = False
 
     try:
         tunnel_process, tunnel_url = launch_trycloudflare_tunnel(local_url, timeout_seconds=min(ttl_seconds, 30))
         public_file_url = build_download_url(tunnel_url, source.name)
         print(f"Public file URL: {public_file_url}")
+        if ask_background_mode():
+            detached = True
+            background_argv = [str(source)]
+            background_argv.extend(["--ttl", str(ttl_seconds)])
+            if port is not None:
+                background_argv.extend(["--port", str(port)])
+            return start_background_process(background_argv)
         while not stop_event.is_set() and tunnel_process.poll() is None:
             time.sleep(0.5)
     except KeyboardInterrupt:
@@ -267,9 +280,14 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         raise
     finally:
         timer.cancel()
-        stop_all()
+        if not detached:
+            stop_all()
 
     return 0
+
+
+def should_run_in_background(answer: str) -> bool:
+    return str(answer or "").strip().lower() == "d"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -282,7 +300,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-t",
         "--ttl",
         default="2h",
-        help="How long the tunnel remains active. Examples: 30m, 90s, 2h, or 600 (seconds).",
+        help="How long the tunnel remains active. Examples: 2h, 30m, 90s, or 600 (seconds).",
     )
     parser.add_argument(
         "-p",
@@ -291,35 +309,51 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional fixed port for the local HTTP server. A random free port is used when omitted.",
     )
-    parser.add_argument(
-        "-d",
-        "--daemon",
-        action="store_true",
-        help="Run the share process in the background and exit immediately.",
-    )
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def start_background_process(argv: List[str]) -> int:
+    cmd = [sys.executable, "-m", "qshare"] + argv
+    env = os.environ.copy()
+    env["QSHARE_BACKGROUND_CHILD"] = "1"
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "env": env,
+    }
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kwargs["creationflags"] = creationflags
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(cmd, **kwargs)
+    print("qshare started in background.")
+    return 0
+
+
+def ask_background_mode() -> bool:
+    try:
+        answer = input("Run in background? Press 'd' to detach, or press Enter to keep in the foreground: ")
+    except EOFError:
+        return False
+    return should_run_in_background(answer)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.daemon:
-        cmd = [sys.executable, os.path.abspath(sys.argv[0]), args.file]
-        if args.ttl != "2h":
-            cmd.extend(["--ttl", str(args.ttl)])
-        if args.port is not None:
-            cmd.extend(["--port", str(args.port)])
-        with open(os.devnull, "wb") as devnull:
-            subprocess.Popen(
-                cmd,
-                stdin=devnull,
-                stdout=devnull,
-                stderr=devnull,
-                close_fds=True,
-                start_new_session=True,
-            )
-        return 0
+    if os.environ.get("QSHARE_BACKGROUND_CHILD") == "1":
+        try:
+            ttl_seconds = parse_duration(args.ttl)
+            return run_share(args.file, ttl_seconds=ttl_seconds, port=args.port)
+        except KeyboardInterrupt:
+            print("\nStopped.")
+            return 130
+        except Exception as exc:  # pragma: no cover - CLI-level output
+            print(f"qshare error: {exc}", file=sys.stderr)
+            return 1
 
     try:
         ttl_seconds = parse_duration(args.ttl)

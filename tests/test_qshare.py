@@ -9,6 +9,8 @@ from qshare.cli import (
     find_available_port,
     get_cloudflared_download_url,
     parse_duration,
+    run_share,
+    should_run_in_background,
 )
 
 
@@ -24,6 +26,41 @@ def test_parse_duration_rejects_invalid_values():
         parse_duration("abc")
     with pytest.raises(ValueError):
         parse_duration("-5m")
+
+
+def test_build_parser_defaults_to_two_hours():
+    args = build_parser().parse_args(["demo.txt"])
+    assert args.ttl == "2h"
+    assert not hasattr(args, "daemon")
+
+
+def test_should_run_in_background_accepts_d_choice():
+    assert should_run_in_background("d") is True
+    assert should_run_in_background(" D ") is True
+    assert should_run_in_background("") is False
+    assert should_run_in_background("n") is False
+
+
+def test_run_share_does_not_stop_server_when_detached(monkeypatch, tmp_path):
+    file_path = tmp_path / "demo.txt"
+    file_path.write_text("demo")
+    server = object()
+    thread = type("Thread", (), {"is_alive": lambda self: False})()
+    stop_called = {"value": False}
+
+    monkeypatch.setattr("qshare.cli.start_local_http_server", lambda *_args, **_kwargs: (server, thread))
+    monkeypatch.setattr(
+        "qshare.cli.launch_trycloudflare_tunnel",
+        lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: None})(), "https://abc.trycloudflare.com"),
+    )
+    monkeypatch.setattr("qshare.cli.ask_background_mode", lambda: True)
+    monkeypatch.setattr("qshare.cli.start_background_process", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("qshare.cli.stop_local_http_server", lambda *_args, **_kwargs: stop_called.__setitem__("value", True))
+
+    result = run_share(str(file_path), ttl_seconds=60, port=12345)
+
+    assert result == 0
+    assert stop_called["value"] is False
 
 
 def test_find_available_port_skips_occupied_ports():
@@ -43,16 +80,6 @@ def test_find_available_port_skips_occupied_ports():
 def test_extract_trycloudflare_url_from_cloudflared_output():
     log = """2025-03-04T10:00:00Z INF Quick Tunnel URL: https://abc123.trycloudflare.com"""
     assert extract_trycloudflare_url(log) == "https://abc123.trycloudflare.com"
-
-
-def test_parser_defaults_to_two_hour_ttl_and_supports_daemon_mode():
-    parser = build_parser()
-    args = parser.parse_args(["/tmp/demo.zip"])
-    assert args.ttl == "2h"
-    assert args.daemon is False
-
-    daemon_args = parser.parse_args(["/tmp/demo.zip", "--daemon"])
-    assert daemon_args.daemon is True
 
 
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
