@@ -109,13 +109,25 @@ class ShareHandler(SimpleHTTPRequestHandler):
             return
 
 
+class ShareHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        # A browser cancelling a download can reset the TCP connection while
+        # the response is being written. It must not affect the server.
+        exc_type, exc_value, _ = sys.exc_info()
+        if isinstance(exc_value, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def start_local_http_server(file_path: Path, port: int) -> Tuple[ThreadingHTTPServer, threading.Thread]:
     if not file_path.exists():
         raise FileNotFoundError(f"File does not exist: {file_path}")
     if not file_path.is_file():
         raise ValueError(f"Path is not a file: {file_path}")
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), partial(ShareHandler, directory=str(file_path.parent)))
+    server = ShareHTTPServer(("127.0.0.1", port), partial(ShareHandler, directory=str(file_path.parent)))
     thread = threading.Thread(target=server.serve_forever, name="qshare-http", daemon=True)
     thread.start()
     return server, thread

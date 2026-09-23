@@ -1,4 +1,6 @@
 import socket
+import time
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -28,6 +30,38 @@ def test_share_handler_ignores_cancelled_download(monkeypatch):
     handler = object.__new__(ShareHandler)
 
     handler.copyfile(object(), object())
+
+
+def test_share_server_suppresses_client_disconnect_errors(monkeypatch, capsys):
+    from qshare.cli import ShareHTTPServer
+
+    server = object.__new__(ShareHTTPServer)
+    error = ConnectionResetError("client cancelled")
+    monkeypatch.setattr("qshare.cli.sys.exc_info", lambda: (ConnectionResetError, error, None))
+    ShareHTTPServer.handle_error(server, object(), ("127.0.0.1", 1))
+    assert capsys.readouterr().err == ""
+
+
+def test_share_server_continues_after_client_cancels_download(tmp_path):
+    from qshare.cli import find_available_port, start_local_http_server, stop_local_http_server
+
+    file_path = tmp_path / "large-file.bin"
+    file_path.write_bytes(b"x" * (2 * 1024 * 1024))
+    port = find_available_port()
+    server, thread = start_local_http_server(file_path, port)
+    try:
+        client = socket.create_connection(("127.0.0.1", port))
+        client.sendall(b"GET /large-file.bin HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        client.recv(1024)
+        client.close()
+        time.sleep(0.1)
+
+        with urllib.request.urlopen("http://127.0.0.1:{}/large-file.bin".format(port)) as response:
+            assert response.read() == file_path.read_bytes()
+        assert thread.is_alive()
+    finally:
+        stop_local_http_server(server)
+        thread.join(timeout=2)
 
 
 def test_parse_duration_accepts_common_units():
