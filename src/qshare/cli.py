@@ -253,7 +253,11 @@ def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> Tuple[s
         "bufsize": 1,
     }
     if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        kwargs["creationflags"] = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+        )
     process = subprocess.Popen(
         [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
         **kwargs,
@@ -498,13 +502,11 @@ def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
 
 
 def detach_windows_console() -> None:
-    """Hide the current console while leaving this process and tunnel intact."""
+    """Release qshare's console attachment without hiding the user's cmd."""
     import ctypes
 
     try:
-        window = ctypes.windll.kernel32.GetConsoleWindow()
-        if window:
-            ctypes.windll.user32.ShowWindow(window, 0)
+        ctypes.windll.kernel32.FreeConsole()
     except (AttributeError, OSError):
         return
     for stream_name, mode in (("stdin", "r"), ("stdout", "a"), ("stderr", "a")):
