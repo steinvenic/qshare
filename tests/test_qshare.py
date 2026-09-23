@@ -270,7 +270,8 @@ def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
     rows = capsys.readouterr().out.splitlines()[1:]
     assert len(rows) == 2
     assert all(len(row) == 4 for row in rows)
-    assert all(set(row) <= set(" ▀▄█") for row in rows)
+    assert rows[0] == "██  "
+    assert rows[1] == "  ██"
 
 
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
