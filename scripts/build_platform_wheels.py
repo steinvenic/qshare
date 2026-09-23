@@ -16,11 +16,13 @@ from pathlib import Path
 
 
 SPECS = [
-    ("cloudflared-linux-386", "cloudflared", "manylinux_2_17_i686"),
-    ("cloudflared-linux-amd64", "cloudflared", "manylinux_2_17_x86_64"),
+    # manylinux2014 is equivalent to the glibc 2.17 baseline, but is also
+    # recognized by older pip releases that do not understand PEP 600 tags.
+    ("cloudflared-linux-386", "cloudflared", "manylinux2014_i686"),
+    ("cloudflared-linux-amd64", "cloudflared", "manylinux2014_x86_64"),
     ("cloudflared-linux-arm", "cloudflared", "linux_armv6l"),
     ("cloudflared-linux-armhf", "cloudflared", "manylinux_2_17_armv7l"),
-    ("cloudflared-linux-arm64", "cloudflared", "manylinux_2_17_aarch64"),
+    ("cloudflared-linux-arm64", "cloudflared", "manylinux2014_aarch64"),
     ("cloudflared-windows-386.exe", "cloudflared.exe", "win32"),
     ("cloudflared-windows-amd64.exe", "cloudflared.exe", "win_amd64"),
     ("cloudflared-darwin-amd64.tgz", "cloudflared", "macosx_10_13_x86_64"),
