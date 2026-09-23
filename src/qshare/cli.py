@@ -332,8 +332,15 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
                 detached = True
                 return 0
             if handoff is None:
-                # Windows and other non-fork platforms retain the old
-                # independent-worker fallback.
+                # Keep the current process alive on Windows by releasing its
+                # console.  This preserves both the listening socket and the
+                # existing cloudflared process (and therefore its hostname).
+                if os.name == "nt":
+                    detach_windows_console()
+                    detached = True
+                    # Fall through to the normal lifetime loop.
+                # Other non-fork platforms retain the independent-worker
+                # fallback.
                 detached = True
                 background_argv = [str(source), "--ttl", str(ttl_seconds)]
                 if port is not None:
@@ -417,6 +424,8 @@ def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
     Returns True in the short-lived parent, False in the detached child, and
     None on platforms without fork support.
     """
+    if os.name == "nt":
+        return None
     if not hasattr(os, "fork"):
         return None
     child_pid = os.fork()
@@ -436,6 +445,22 @@ def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
         pass
     threading.Thread(target=server.serve_forever, name="qshare-http", daemon=True).start()
     return False
+
+
+def detach_windows_console() -> None:
+    """Release the Windows console while leaving this process running."""
+    import ctypes
+
+    try:
+        ctypes.windll.kernel32.FreeConsole()
+    except (AttributeError, OSError):
+        return
+    for stream_name, mode in (("stdin", "r"), ("stdout", "w"), ("stderr", "w")):
+        try:
+            stream = open(os.devnull, mode)
+            setattr(sys, stream_name, stream)
+        except OSError:
+            pass
 
 
 def ask_background_mode() -> bool:
