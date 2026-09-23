@@ -246,12 +246,17 @@ def ensure_cloudflared() -> str:
 def launch_trycloudflare_tunnel(local_url: str, timeout_seconds: int) -> Tuple[subprocess.Popen, str]:
     cloudflared_path = ensure_cloudflared()
     logfile = Path(tempfile.gettempdir()) / f"qshare-{uuid.uuid4().hex}.log"
+    kwargs = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "universal_newlines": True,
+        "bufsize": 1,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         [cloudflared_path, "tunnel", "--url", local_url, "--no-autoupdate", "--logfile", str(logfile)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1,
+        **kwargs,
     )
 
     if process.stdout is None:
@@ -493,14 +498,16 @@ def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
 
 
 def detach_windows_console() -> None:
-    """Release the Windows console while leaving this process running."""
+    """Hide the current console while leaving this process and tunnel intact."""
     import ctypes
 
     try:
-        ctypes.windll.kernel32.FreeConsole()
+        window = ctypes.windll.kernel32.GetConsoleWindow()
+        if window:
+            ctypes.windll.user32.ShowWindow(window, 0)
     except (AttributeError, OSError):
         return
-    for stream_name, mode in (("stdin", "r"), ("stdout", "w"), ("stderr", "w")):
+    for stream_name, mode in (("stdin", "r"), ("stdout", "a"), ("stderr", "a")):
         try:
             stream = open(os.devnull, mode)
             setattr(sys, stream_name, stream)
