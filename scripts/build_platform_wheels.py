@@ -4,14 +4,10 @@ Run after ``uv build``:
     python scripts/build_platform_wheels.py --assets-dir /path/to/cloudflared-assets
 """
 import argparse
-import base64
-import csv
-import hashlib
-import io
 import shutil
+import subprocess
 import tarfile
 import tempfile
-import zipfile
 from pathlib import Path
 
 
@@ -30,10 +26,6 @@ SPECS = [
 ]
 
 
-def digest(data):
-    return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode("ascii")
-
-
 def extract_asset(asset, output):
     if asset.suffix != ".tgz":
         shutil.copyfile(str(asset), str(output))
@@ -47,23 +39,23 @@ def extract_asset(asset, output):
 
 
 def make_wheel(base_wheel, binary, filename, tag, dist_dir):
-    with zipfile.ZipFile(str(base_wheel)) as source:
-        files = {name: source.read(name) for name in source.namelist() if not name.endswith("/RECORD")}
-    wheel_path = next(name for name in files if name.endswith(".dist-info/WHEEL"))
-    record_path = wheel_path.rsplit("/", 1)[0] + "/RECORD"
-    wheel_lines = [line for line in files[wheel_path].decode("utf-8").splitlines() if not line.startswith(("Root-Is-Purelib:", "Tag:"))]
-    wheel_lines.extend(["Root-Is-Purelib: false", "Tag: py3-none-" + tag, ""])
-    files[wheel_path] = "\n".join(wheel_lines).encode("utf-8")
-    files["qshare/_binaries/" + filename] = binary.read_bytes()
-    record = io.StringIO()
-    writer = csv.writer(record, lineterminator="\n")
-    for name in sorted(files):
-        writer.writerow([name, digest(files[name]), str(len(files[name]))])
-    writer.writerow([record_path, "", ""])
-    files[record_path] = record.getvalue().encode("utf-8")
-    with zipfile.ZipFile(str(dist_dir / (base_wheel.stem.replace("py3-none-any", "py3-none-" + tag) + ".whl")), "w", zipfile.ZIP_DEFLATED) as output:
-        for name, content in files.items():
-            output.writestr(name, content)
+    unpack_dir = Path(tempfile.mkdtemp(prefix="qshare-wheel-"))
+    try:
+        subprocess.run(["uvx", "--from", "wheel", "wheel", "unpack", str(base_wheel), "--dest", str(unpack_dir)], check=True)
+        package_dir = next(unpack_dir.iterdir())
+        wheel_metadata = next(package_dir.glob("*.dist-info/WHEEL"))
+        lines = [line for line in wheel_metadata.read_text().splitlines() if not line.startswith(("Root-Is-Purelib:", "Tag:"))]
+        lines.extend(["Root-Is-Purelib: false", "Tag: py3-none-{}".format(tag), ""])
+        wheel_metadata.write_text("\n".join(lines))
+        binary_target = package_dir / "qshare" / "_binaries" / filename
+        binary_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(binary), str(binary_target))
+        subprocess.run(["uvx", "--from", "wheel", "wheel", "pack", str(package_dir), "--dest-dir", str(dist_dir)], check=True)
+        expected = dist_dir / (base_wheel.stem.replace("py3-none-any", "py3-none-{}".format(tag)) + ".whl")
+        if not expected.is_file():
+            raise RuntimeError("wheel pack did not create {}".format(expected))
+    finally:
+        shutil.rmtree(str(unpack_dir), ignore_errors=True)
 
 
 def main():
