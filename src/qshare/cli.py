@@ -92,6 +92,23 @@ def print_qr_code(url: str) -> None:
     qr.add_data(url)
     qr.make(fit=True)
     print("Scan this QR code to open the public file URL:")
+    if os.name == "nt":
+        # Windows' legacy console uses character cells that are considerably
+        # taller than they are wide.  qrcode.print_ascii() packs two QR rows
+        # into one character row, which makes its finder patterns visibly
+        # rectangular on that console.  Render one QR module per line and
+        # double each module horizontally so the modules remain square.
+        matrix = qr.get_matrix()
+        border = 1
+        blank = "  "
+        solid = "██"
+        for row in range(-border, len(matrix) + border):
+            rendered = []
+            for col in range(-border, len(matrix) + border):
+                dark = 0 <= row < len(matrix) and 0 <= col < len(matrix) and matrix[row][col]
+                rendered.append(solid if dark else blank)
+            print("".join(rendered))
+        return
     # Two QR rows per terminal row keeps the code compact and scannable.
     qr.print_ascii(invert=True)
 

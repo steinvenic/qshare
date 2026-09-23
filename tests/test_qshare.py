@@ -244,6 +244,36 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
     assert ("print", {"invert": True}) in calls
 
 
+def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
+    class QRCode:
+        def __init__(self, **kwargs):
+            pass
+
+        def add_data(self, value):
+            pass
+
+        def make(self, **kwargs):
+            pass
+
+        def get_matrix(self):
+            return [[True, False], [False, True]]
+
+        def print_ascii(self, **kwargs):
+            raise AssertionError("Windows rendering should not use print_ascii")
+
+    monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
+    monkeypatch.setattr("qshare.cli.os.name", "nt")
+
+    from qshare.cli import print_qr_code
+
+    print_qr_code("https://department.trycloudflare.com/file.zip")
+    rows = capsys.readouterr().out.splitlines()[1:]
+    assert len(rows) == 4
+    assert all(len(row) == 8 for row in rows)
+    assert rows[0].startswith("    ")
+    assert rows[1].startswith("  ██")
+
+
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
     bundled = tmp_path / "bundled-cloudflared"
     bundled.write_bytes(b"cloudflared")
