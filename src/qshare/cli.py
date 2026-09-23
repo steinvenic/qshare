@@ -90,7 +90,7 @@ def build_download_url(base_url: str, file_name: str) -> str:
 def print_qr_code(url: str) -> None:
     qr = qrcode.QRCode(
         error_correction=qrcode.constants.ERROR_CORRECT_L,
-        border=0,
+        border=1,
     )
     qr.add_data(url)
     qr.make(fit=True)
