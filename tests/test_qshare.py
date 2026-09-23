@@ -17,6 +17,19 @@ from qshare.cli import (
 )
 
 
+def test_share_handler_ignores_cancelled_download(monkeypatch):
+    from qshare.cli import ShareHandler
+
+    class Parent:
+        def copyfile(self, source, outputfile):
+            raise ConnectionResetError("client cancelled")
+
+    monkeypatch.setattr("qshare.cli.SimpleHTTPRequestHandler.copyfile", Parent.copyfile)
+    handler = object.__new__(ShareHandler)
+
+    handler.copyfile(object(), object())
+
+
 def test_parse_duration_accepts_common_units():
     assert parse_duration("30m") == 1800
     assert parse_duration("90s") == 90

@@ -100,6 +100,14 @@ class ShareHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
 
+    def copyfile(self, source: object, outputfile: object) -> None:
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # The client may cancel a download or close its browser tab.
+            # That is not a server failure and should not print a traceback.
+            return
+
 
 def start_local_http_server(file_path: Path, port: int) -> Tuple[ThreadingHTTPServer, threading.Thread]:
     if not file_path.exists():
