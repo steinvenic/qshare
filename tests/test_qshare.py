@@ -128,6 +128,19 @@ def test_extract_trycloudflare_url_from_cloudflared_output():
     assert extract_trycloudflare_url(log) == "https://abc123.trycloudflare.com"
 
 
+def test_copy_to_clipboard_uses_available_linux_backend(monkeypatch):
+    calls = []
+    monkeypatch.setattr("qshare.cli.platform.system", lambda: "Linux")
+    monkeypatch.setattr("qshare.cli.shutil.which", lambda name: "/usr/bin/wl-copy" if name == "wl-copy" else None)
+    monkeypatch.setattr("qshare.cli.subprocess.run", lambda *args, **kwargs: calls.append((args, kwargs)))
+
+    from qshare.cli import copy_to_clipboard
+
+    assert copy_to_clipboard("https://example.test/file") is True
+    assert calls[0][0][0] == ["wl-copy"]
+    assert calls[0][1]["input"] == "https://example.test/file"
+
+
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):
     monkeypatch.setenv("CLOUDFLARED_DOWNLOAD_URL", "https://example.com/mirror/cloudflared-linux-amd64")
     assert get_cloudflared_download_url() == "https://example.com/mirror/cloudflared-linux-amd64"

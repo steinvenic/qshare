@@ -80,6 +80,47 @@ def extract_trycloudflare_url(output: str) -> Optional[str]:
     return None
 
 
+def copy_to_clipboard(text: str) -> bool:
+    """Copy text to the native clipboard when a system backend is available."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            CF_UNICODETEXT = 13
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+            if not user32.OpenClipboard(None):
+                return False
+            try:
+                user32.EmptyClipboard()
+                data = ctypes.create_unicode_buffer(text)
+                handle = kernel32.GlobalAlloc(0x0002, ctypes.sizeof(data))
+                if not handle:
+                    return False
+                ctypes.memmove(handle, ctypes.addressof(data), ctypes.sizeof(data))
+                if not user32.SetClipboardData(CF_UNICODETEXT, handle):
+                    kernel32.GlobalFree(handle)
+                    return False
+                return True
+            finally:
+                user32.CloseClipboard()
+
+        if platform.system().lower() == "darwin":
+            command = ["pbcopy"]
+        elif shutil.which("wl-copy"):
+            command = ["wl-copy"]
+        elif shutil.which("xclip"):
+            command = ["xclip", "-selection", "clipboard"]
+        elif shutil.which("xsel"):
+            command = ["xsel", "--clipboard", "--input"]
+        else:
+            return False
+        subprocess.run(command, input=text, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def build_download_url(base_url: str, file_name: str) -> str:
     cleaned_base = base_url.rstrip("/")
     cleaned_name = file_name.lstrip("/")
@@ -320,6 +361,10 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         tunnel_process, tunnel_url = launch_trycloudflare_tunnel(local_url, timeout_seconds=min(ttl_seconds, 30))
         public_file_url = build_download_url(tunnel_url, source.name)
         print(f"Public file URL: {public_file_url}")
+        if copy_to_clipboard(public_file_url):
+            print("Public URL copied to clipboard.")
+        else:
+            print("Could not copy the public URL to clipboard; please copy it manually.")
         # A detached child is already the background worker.  Prompting it
         # again (with stdin connected to DEVNULL) makes it take the
         # foreground path accidentally and, more importantly, used to make
