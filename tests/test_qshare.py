@@ -181,9 +181,8 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
         def make(self, **kwargs):
             calls.append(("make", kwargs))
 
-        def get_matrix(self):
-            calls.append(("matrix", None))
-            return [[True, False], [False, True]]
+        def print_ascii(self, **kwargs):
+            calls.append(("print", kwargs))
 
     monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
 
@@ -192,7 +191,7 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
     print_qr_code("https://department.trycloudflare.com/file.zip")
 
     assert ("data", "https://department.trycloudflare.com/file.zip") in calls
-    assert ("matrix", None) in calls
+    assert ("print", {"invert": True}) in calls
 
 
 def test_get_cloudflared_download_url_uses_env_override(monkeypatch):

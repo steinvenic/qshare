@@ -88,13 +88,12 @@ def build_download_url(base_url: str, file_name: str) -> str:
 
 
 def print_qr_code(url: str) -> None:
-    qr = qrcode.QRCode(border=2)
+    qr = qrcode.QRCode(border=1)
     qr.add_data(url)
     qr.make(fit=True)
     print("Scan this QR code to open the public file URL:")
-    # Use only ASCII so the QR code renders in Windows cmd code pages too.
-    for row in qr.get_matrix():
-        print("".join("##" if cell else "  " for cell in row))
+    # Two QR rows per terminal row keeps the code compact and scannable.
+    qr.print_ascii(invert=True)
 
 
 class ShareHandler(SimpleHTTPRequestHandler):
