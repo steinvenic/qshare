@@ -301,3 +301,12 @@ def test_build_download_url_joins_base_and_filename():
 def test_parser_accepts_cnb_flag():
     args = build_parser().parse_args(["sample.zip", "--cnb"])
     assert args.cnb is True
+
+
+def test_cnb_confirmation_requires_y(monkeypatch):
+    from qshare.cli import confirm_cnb_upload
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+    assert confirm_cnb_upload() is False
+    monkeypatch.setattr("builtins.input", lambda _prompt: "Y")
+    assert confirm_cnb_upload() is True

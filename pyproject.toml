@@ -1,6 +1,6 @@
 [project]
 name = "qshare"
-version = "0.2.8"
+version = "0.2.9"
 description = "Quickly share local files through a public TryCloudflare tunnel."
 readme = "README.md"
 authors = [

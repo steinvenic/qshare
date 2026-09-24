@@ -412,8 +412,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def print_privacy_warning() -> None:
-    print("! 私密文件请先加密，再进行中转分享。")
-    print("! Encrypt private files before transferring or sharing them.")
+    line = "!" * 72
+    print("\n" + line)
+    print("!!! 重要安全提示 / IMPORTANT SECURITY WARNING !!!")
+    print("私密文件请先加密，再进行中转分享。公网链接没有访问控制。")
+    print("Encrypt private files before transferring them. Public URLs have no access control.")
+    print(line)
+
+
+def confirm_cnb_upload() -> bool:
+    try:
+        answer = input("确认将文件上传到 CNB 并存储在那里吗？输入 y 确认 / Confirm upload (y/N): ")
+    except EOFError:
+        return False
+    return answer.strip().lower() == "y"
 
 
 def run_cnb_upload(file_path: str) -> int:
@@ -497,6 +509,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     print_privacy_warning()
 
     if args.cnb:
+        if not confirm_cnb_upload():
+            print("已取消上传 / Upload cancelled.")
+            return 0
         try:
             return run_cnb_upload(args.file)
         except KeyboardInterrupt:
