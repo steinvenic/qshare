@@ -403,7 +403,32 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional fixed port for the local HTTP server. A random free port is used when omitted.",
     )
+    parser.add_argument(
+        "--cnb",
+        action="store_true",
+        help="Upload the file to the configured CNB release instead of sharing through TryCloudflare.",
+    )
     return parser
+
+
+def print_privacy_warning() -> None:
+    print("! 私密文件请先加密，再进行中转分享。")
+    print("! Encrypt private files before transferring or sharing them.")
+
+
+def run_cnb_upload(file_path: str) -> int:
+    source = Path(file_path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError("File not found: {}".format(source))
+    from .cnb import upload_to_cnb
+
+    print("Uploading file to CNB Release; the file will be stored there.", flush=True)
+    public_url = upload_to_cnb(str(source))
+    print("\n" + "=" * 72)
+    print("PUBLIC FILE URL: {}".format(public_url))
+    print("=" * 72 + "\n", flush=True)
+    print_qr_code(public_url)
+    return 0
 
 
 def start_background_process(argv: List[str]) -> int:
@@ -469,6 +494,17 @@ def ask_background_mode() -> bool:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    print_privacy_warning()
+
+    if args.cnb:
+        try:
+            return run_cnb_upload(args.file)
+        except KeyboardInterrupt:
+            print("\nUpload cancelled.")
+            return 130
+        except Exception as exc:  # pragma: no cover - CLI-level output
+            print("qshare error: {}".format(exc), file=sys.stderr)
+            return 1
 
     if os.environ.get("QSHARE_BACKGROUND_CHILD") == "1":
         try:

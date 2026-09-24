@@ -13,6 +13,8 @@
 - PyPI 平台 wheel 内置对应的官方 `cloudflared` 二进制
 - 运行时不从 GitHub 下载二进制，适合网络受限环境
 
+启动后会提示：私密文件请先加密，再进行中转分享。公网链接本身没有访问控制，请勿直接分享未加密的敏感文件。
+
 ## 安装
 
 ```bash
@@ -34,9 +36,12 @@ qshare /path/to/file.zip
 qshare /path/to/file.zip --ttl 2h
 qshare /path/to/file.zip --ttl 900
 qshare /path/to/file.zip --port 8000
+qshare /path/to/file.zip --cnb
 ```
 
 成功后会显示醒目的公网文件链接及二维码。程序只接受真实的 `*.trycloudflare.com` 分享域名，会拒绝 `api.trycloudflare.com` 并自动重试。Unix-like 系统可在提示处输入 `d` 后台运行；Windows 始终前台运行。前台运行达到 TTL 后会提示并停止分享。
+
+使用 `--cnb` 会将文件上传到 CNB Release 并返回下载地址；文件会存储在 CNB，请先加密私密文件。上传过程中会显示进度。
 
 ## DNS 排查
 

@@ -15,6 +15,9 @@ stored on a qshare server.
 - Platform-specific PyPI wheels containing the matching official `cloudflared` binary
 - No runtime download from GitHub
 
+On startup qshare reminds you to encrypt private files before transferring them. Public URLs
+have no access control, so do not share sensitive files without encryption.
+
 ## Installation
 
 ```bash
@@ -39,12 +42,16 @@ qshare /path/to/file.zip
 qshare /path/to/file.zip --ttl 2h
 qshare /path/to/file.zip --ttl 900
 qshare /path/to/file.zip --port 8000
+qshare /path/to/file.zip --cnb
 ```
 
 qshare displays a prominent public URL and a terminal QR code. It accepts only a real
 `*.trycloudflare.com` share hostname, rejects `api.trycloudflare.com`, and retries. On
 Unix-like systems, enter `d` at the prompt to run in the background; Windows always runs in
 the foreground. A foreground share prints a notice and stops when its TTL expires.
+
+With `--cnb`, qshare uploads the file to a CNB Release and prints its download URL. The file
+is stored in CNB; encrypt private files first. Upload progress is shown while transferring.
 
 ## DNS troubleshooting
 

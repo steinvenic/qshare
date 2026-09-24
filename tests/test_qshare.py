@@ -296,3 +296,8 @@ def test_get_bundled_cloudflared_binary_requires_platform_wheel(monkeypatch, tmp
 def test_build_download_url_joins_base_and_filename():
     assert build_download_url("https://abc.trycloudflare.com", "demo.zip") == "https://abc.trycloudflare.com/demo.zip"
     assert build_download_url("https://abc.trycloudflare.com/", "/demo.zip") == "https://abc.trycloudflare.com/demo.zip"
+
+
+def test_parser_accepts_cnb_flag():
+    args = build_parser().parse_args(["sample.zip", "--cnb"])
+    assert args.cnb is True
