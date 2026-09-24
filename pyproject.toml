@@ -1,11 +1,12 @@
 [project]
 name = "qshare"
-version = "0.2.9"
+version = "0.3.0"
 description = "Quickly share local files through a public TryCloudflare tunnel."
 readme = "README.md"
 authors = [
     { name = "steinvenic", email = "761701732@qq.com" }
 ]
+urls = { Homepage = "https://github.com/steinvenic/qshare" }
 requires-python = ">=3.6"
 dependencies = [
     "qrcode==7.3",
