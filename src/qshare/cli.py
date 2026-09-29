@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import uuid
+import webbrowser
 import qrcode
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -95,12 +96,32 @@ def print_qr_code(url: str) -> None:
     qr.make(fit=True)
     print("Scan this QR code to open the public file URL:")
     if os.name == "nt":
-        # Avoid Unicode block glyphs: their width varies between CMD,
-        # PowerShell, and installed fonts.  ASCII pairs have predictable
-        # geometry and remain readable by strict camera decoders.
+        # Console character cells vary by CMD/PowerShell font and scaling, so
+        # a camera cannot reliably decode a character-art QR code.  Write a
+        # standards-compliant vector QR instead; browsers render every module
+        # as a true square and can be scanned from the screen.
         matrix = qr.get_matrix()
-        for row in matrix:
-            print("".join("##" if module else "  " for module in row))
+        size = len(matrix)
+        modules = []
+        for row, values in enumerate(matrix):
+            for col, module in enumerate(values):
+                if module:
+                    modules.append('<rect x="{}" y="{}" width="1" height="1"/>'.format(col, row))
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {0} {0}" '
+            'shape-rendering="crispEdges">\n'
+            '<rect width="100%" height="100%" fill="white"/>\n'
+            '<g fill="black">{1}</g>\n</svg>\n'
+        ).format(size, "".join(modules))
+        path = Path(tempfile.gettempdir()) / "qshare-qr-{}.svg".format(uuid.uuid4().hex[:10])
+        path.write_text(svg, encoding="utf-8")
+        print("Windows QR code saved to: {}".format(path))
+        print("It is opening in your browser; scan the displayed QR code with your camera.")
+        try:
+            webbrowser.open(path.as_uri())
+        except (OSError, ValueError):
+            pass
         return
     # qrcode's terminal renderer packs two QR rows into one character row.
     # It handles the quiet zone consistently in CMD, PowerShell, and Unix
