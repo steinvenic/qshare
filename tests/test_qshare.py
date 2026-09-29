@@ -256,8 +256,11 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch):
         def make(self, **kwargs):
             pass
 
+        def get_matrix(self):
+            return [[True, False], [False, True]]
+
         def print_ascii(self, **kwargs):
-            assert kwargs == {"invert": True}
+            raise AssertionError("Windows should use square-module rendering")
 
     monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
     monkeypatch.setattr("qshare.cli.os.name", "nt")
