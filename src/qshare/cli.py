@@ -86,25 +86,17 @@ def build_download_url(base_url: str, file_name: str) -> str:
 
 def print_qr_code(url: str) -> None:
     qr = qrcode.QRCode(
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        border=1,
+        # A four-module quiet zone is required by the QR specification and
+        # lets ordinary camera apps reliably detect the finder patterns.
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        border=4,
     )
     qr.add_data(url)
     qr.make(fit=True)
     print("Scan this QR code to open the public file URL:")
-    if os.name == "nt":
-        # Windows' legacy console uses character cells that are considerably
-        # taller than they are wide. Keep the proven 0.2.5 square-module
-        # renderer; omit only the outer quiet-zone border to make it slightly
-        # smaller without distorting the three finder patterns.
-        matrix = qr.get_matrix()
-        for row in range(len(matrix)):
-            rendered = []
-            for col in range(len(matrix)):
-                rendered.append("██" if matrix[row][col] else "  ")
-            print("".join(rendered))
-        return
-    # Two QR rows per terminal row keeps the code compact and scannable.
+    # qrcode's terminal renderer packs two QR rows into one character row.
+    # It handles the quiet zone consistently in CMD, PowerShell, and Unix
+    # terminals without platform-specific character stretching.
     qr.print_ascii(invert=True)
 
 

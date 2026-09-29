@@ -239,12 +239,13 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
 
     print_qr_code("https://department.trycloudflare.com/file.zip")
 
-    assert calls[0][1]["border"] == 1
+    assert calls[0][1]["border"] == 4
+    assert calls[0][1]["error_correction"] == qrcode.constants.ERROR_CORRECT_M
     assert ("data", "https://department.trycloudflare.com/file.zip") in calls
     assert ("print", {"invert": True}) in calls
 
 
-def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
+def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch):
     class QRCode:
         def __init__(self, **kwargs):
             pass
@@ -255,11 +256,8 @@ def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
         def make(self, **kwargs):
             pass
 
-        def get_matrix(self):
-            return [[True, False], [False, True]]
-
         def print_ascii(self, **kwargs):
-            raise AssertionError("Windows rendering should not use print_ascii")
+            assert kwargs == {"invert": True}
 
     monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
     monkeypatch.setattr("qshare.cli.os.name", "nt")
@@ -267,11 +265,6 @@ def test_print_qr_code_uses_square_modules_on_windows(monkeypatch, capsys):
     from qshare.cli import print_qr_code
 
     print_qr_code("https://department.trycloudflare.com/file.zip")
-    rows = capsys.readouterr().out.splitlines()[1:]
-    assert len(rows) == 2
-    assert all(len(row) == 4 for row in rows)
-    assert rows[0] == "██  "
-    assert rows[1] == "  ██"
 
 
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
