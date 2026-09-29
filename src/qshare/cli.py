@@ -95,13 +95,12 @@ def print_qr_code(url: str) -> None:
     qr.make(fit=True)
     print("Scan this QR code to open the public file URL:")
     if os.name == "nt":
-        # Windows console cells are taller than they are wide.  Render every
-        # QR module on its own row and double its horizontal width so finder
-        # patterns stay square to phone cameras.  get_matrix() includes the
-        # configured four-module quiet zone.
+        # Avoid Unicode block glyphs: their width varies between CMD,
+        # PowerShell, and installed fonts.  ASCII pairs have predictable
+        # geometry and remain readable by strict camera decoders.
         matrix = qr.get_matrix()
         for row in matrix:
-            print("".join("██" if module else "  " for module in row))
+            print("".join("##" if module else "  " for module in row))
         return
     # qrcode's terminal renderer packs two QR rows into one character row.
     # It handles the quiet zone consistently in CMD, PowerShell, and Unix
