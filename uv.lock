@@ -401,7 +401,7 @@ sdist = { url = "https://mirrors.ustc.edu.cn/pypi/packages/12/a5/657b4e6323ddb0f
 
 [[package]]
 name = "qshare"
-version = "0.3.7"
+version = "0.3.8"
 source = { editable = "." }
 dependencies = [
     { name = "qrcode" },

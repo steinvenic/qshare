@@ -25,12 +25,9 @@ SPECS = [
     ("cloudflared-darwin-arm64.tgz", "cloudflared", "macosx_11_0_arm64"),
     # pip versions predating manylinux2010/2014 support reject those wheels
     # and otherwise fall back to the universal wheel, which has no binary.
-    # Keep generic Linux wheels for those installers; modern pip prioritizes
-    # the matching manylinux wheels above these fallback tags.
-    ("cloudflared-linux-386", "cloudflared", "linux_i686"),
-    ("cloudflared-linux-amd64", "cloudflared", "linux_x86_64"),
-    ("cloudflared-linux-armhf", "cloudflared", "linux_armv7l"),
-    ("cloudflared-linux-arm64", "cloudflared", "linux_aarch64"),
+    # manylinux1 is accepted by PyPI and supported by those installers.
+    ("cloudflared-linux-386", "cloudflared", "manylinux1_i686"),
+    ("cloudflared-linux-amd64", "cloudflared", "manylinux1_x86_64"),
 ]
 
 
