@@ -1,4 +1,5 @@
 import argparse
+import builtins
 import os
 import posixpath
 import re
@@ -22,6 +23,29 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
 DEFAULT_TTL_SECONDS = 2 * 60 * 60
+
+
+def _text_for_stream(value: object, stream: object) -> str:
+    text = str(value)
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+        return text
+    except (LookupError, UnicodeEncodeError):
+        try:
+            return text.encode(encoding, "replace").decode(encoding, "replace")
+        except (LookupError, UnicodeEncodeError):
+            return text.encode("ascii", "replace").decode("ascii")
+
+
+def _safe_print(*values: object, **kwargs: object) -> None:
+    stream = kwargs.get("file") or sys.stdout
+    values = tuple(_text_for_stream(value, stream) for value in values)
+    builtins.print(*values, **kwargs)
+
+
+# Python 3.6 may inherit an ASCII stdout/stderr encoding from the host.
+print = _safe_print
 
 
 def parse_duration(value: Union[str, int, float]) -> int:
@@ -473,15 +497,23 @@ def build_parser() -> argparse.ArgumentParser:
 def print_privacy_warning() -> None:
     line = "!" * 72
     print("\n" + line)
-    print("!!! 重要安全提示 / IMPORTANT SECURITY WARNING !!!")
-    print("私密文件请先加密，再进行中转分享。公网链接没有访问控制。")
+    warning = "!!! 重要安全提示 / IMPORTANT SECURITY WARNING !!!"
+    reminder = "私密文件请先加密，再进行中转分享。公网链接没有访问控制。"
+    if _text_for_stream(warning, sys.stdout) == warning and _text_for_stream(reminder, sys.stdout) == reminder:
+        print(warning)
+        print(reminder)
+    else:
+        print("IMPORTANT SECURITY WARNING: Encrypt private files before transferring them.")
     print("Encrypt private files before transferring them. Public URLs have no access control.")
     print(line)
 
 
 def confirm_cnb_upload() -> bool:
     try:
-        answer = input("确认将文件上传到 CNB 并存储在那里吗？输入 y 确认 / Confirm upload (y/N): ")
+        prompt = "确认将文件上传到 CNB 并存储在那里吗？输入 y 确认 / Confirm upload (y/N): "
+        if _text_for_stream(prompt, sys.stdout) != prompt:
+            prompt = "Confirm upload to CNB (y/N): "
+        answer = input(prompt)
     except EOFError:
         return False
     return answer.strip().lower() == "y"

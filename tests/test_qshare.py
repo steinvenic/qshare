@@ -1,6 +1,7 @@
 import socket
 import time
 import urllib.request
+from io import StringIO
 from http.server import HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -339,3 +340,34 @@ def test_cnb_confirmation_requires_y(monkeypatch):
     assert confirm_cnb_upload() is False
     monkeypatch.setattr("builtins.input", lambda _prompt: "Y")
     assert confirm_cnb_upload() is True
+
+
+def test_privacy_warning_uses_english_fallback_for_ascii_stdout(monkeypatch):
+    from qshare.cli import print_privacy_warning
+
+    class ASCIIStream(StringIO):
+        encoding = "ascii"
+
+    stream = ASCIIStream()
+    monkeypatch.setattr("qshare.cli.sys.stdout", stream)
+
+    print_privacy_warning()
+
+    output = stream.getvalue()
+    assert "IMPORTANT SECURITY WARNING" in output
+    assert "Encrypt private files before transferring them." in output
+    assert "重要安全提示" not in output
+
+
+def test_cnb_confirmation_uses_english_fallback_for_ascii_stdout(monkeypatch):
+    from qshare.cli import confirm_cnb_upload
+
+    class ASCIIStream(StringIO):
+        encoding = "ascii"
+
+    prompt = []
+    monkeypatch.setattr("qshare.cli.sys.stdout", ASCIIStream())
+    monkeypatch.setattr("builtins.input", lambda value: prompt.append(value) or "n")
+
+    assert confirm_cnb_upload() is False
+    assert prompt == ["Confirm upload to CNB (y/N): "]
