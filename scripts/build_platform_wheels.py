@@ -23,6 +23,14 @@ SPECS = [
     ("cloudflared-windows-amd64.exe", "cloudflared.exe", "win_amd64"),
     ("cloudflared-darwin-amd64.tgz", "cloudflared", "macosx_10_13_x86_64"),
     ("cloudflared-darwin-arm64.tgz", "cloudflared", "macosx_11_0_arm64"),
+    # pip versions predating manylinux2010/2014 support reject those wheels
+    # and otherwise fall back to the universal wheel, which has no binary.
+    # Keep generic Linux wheels for those installers; modern pip prioritizes
+    # the matching manylinux wheels above these fallback tags.
+    ("cloudflared-linux-386", "cloudflared", "linux_i686"),
+    ("cloudflared-linux-amd64", "cloudflared", "linux_x86_64"),
+    ("cloudflared-linux-armhf", "cloudflared", "linux_armv7l"),
+    ("cloudflared-linux-arm64", "cloudflared", "linux_aarch64"),
 ]
 
 
