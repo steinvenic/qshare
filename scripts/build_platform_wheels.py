@@ -44,7 +44,11 @@ def make_wheel(base_wheel, binary, filename, tag, dist_dir):
         subprocess.run(["uvx", "--from", "wheel", "wheel", "unpack", str(base_wheel), "--dest", str(unpack_dir)], check=True)
         package_dir = next(unpack_dir.iterdir())
         wheel_metadata = next(package_dir.glob("*.dist-info/WHEEL"))
-        lines = [line for line in wheel_metadata.read_text().splitlines() if not line.startswith(("Root-Is-Purelib:", "Tag:"))]
+        lines = [
+            line
+            for line in wheel_metadata.read_text().splitlines()
+            if line and not line.startswith(("Root-Is-Purelib:", "Tag:"))
+        ]
         lines.extend(["Root-Is-Purelib: false", "Tag: py3-none-{}".format(tag), ""])
         wheel_metadata.write_text("\n".join(lines))
         binary_target = package_dir / "qshare" / "_binaries" / filename
