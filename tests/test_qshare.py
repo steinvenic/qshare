@@ -1,7 +1,10 @@
 import socket
 import time
 import urllib.request
+from http.server import HTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
+from types import SimpleNamespace
 
 import pytest
 
@@ -40,6 +43,13 @@ def test_share_server_suppresses_client_disconnect_errors(monkeypatch, capsys):
     monkeypatch.setattr("qshare.cli.sys.exc_info", lambda: (ConnectionResetError, error, None))
     ShareHTTPServer.handle_error(server, object(), ("127.0.0.1", 1))
     assert capsys.readouterr().err == ""
+
+
+def test_share_server_uses_python_36_compatible_threading_base():
+    from qshare.cli import ShareHTTPServer
+
+    assert issubclass(ShareHTTPServer, ThreadingMixIn)
+    assert issubclass(ShareHTTPServer, HTTPServer)
 
 
 def test_share_server_continues_after_client_cancels_download(tmp_path):
@@ -164,6 +174,27 @@ def test_background_child_does_not_prompt_to_detach_again(monkeypatch, tmp_path,
     assert output.index("PUBLIC FILE URL:") < output.index("QR CODE")
 
 
+def test_run_share_keeps_public_url_when_qr_code_fails(monkeypatch, tmp_path, capsys):
+    file_path = tmp_path / "demo.txt"
+    file_path.write_text("demo")
+    server = object()
+    thread = type("Thread", (), {"is_alive": lambda self: False})()
+
+    monkeypatch.setenv("QSHARE_BACKGROUND_CHILD", "1")
+    monkeypatch.setattr("qshare.cli.start_local_http_server", lambda *_args, **_kwargs: (server, thread))
+    monkeypatch.setattr(
+        "qshare.cli.launch_trycloudflare_tunnel",
+        lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: 0})(), "https://abc.trycloudflare.com"),
+    )
+    monkeypatch.setattr("qshare.cli._load_qrcode", lambda: (_ for _ in ()).throw(ImportError("broken qrcode")))
+
+    assert run_share(str(file_path), ttl_seconds=60, port=12345) == 0
+
+    captured = capsys.readouterr()
+    assert "PUBLIC FILE URL: https://abc.trycloudflare.com/demo.txt" in captured.out
+    assert "QR code unavailable: broken qrcode" in captured.err
+
+
 def test_find_available_port_skips_occupied_ports():
     occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupied.bind(("127.0.0.1", 0))
@@ -233,7 +264,8 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
         def print_ascii(self, **kwargs):
             calls.append(("print", kwargs))
 
-    monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
+    qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
+    monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
 
     from qshare.cli import print_qr_code
 
@@ -262,7 +294,8 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch):
         def print_ascii(self, **kwargs):
             raise AssertionError("Windows should use square-module rendering")
 
-    monkeypatch.setattr("qshare.cli.qrcode.QRCode", QRCode)
+    qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
+    monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
     monkeypatch.setattr("qshare.cli.os.name", "nt")
 
     from qshare.cli import print_qr_code

@@ -1,5 +1,6 @@
 import argparse
 import os
+import posixpath
 import re
 import signal
 import shutil
@@ -11,9 +12,12 @@ import threading
 import time
 import uuid
 import webbrowser
-import qrcode
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
+from urllib.parse import unquote, urljoin, urlparse
+from urllib.request import pathname2url
+
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple, Union
 
@@ -85,53 +89,85 @@ def build_download_url(base_url: str, file_name: str) -> str:
     return f"{cleaned_base}/{cleaned_name}"
 
 
-def print_qr_code(url: str) -> None:
-    qr = qrcode.QRCode(
-        # A four-module quiet zone is required by the QR specification and
-        # lets ordinary camera apps reliably detect the finder patterns.
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        border=4,
-    )
-    qr.add_data(url)
-    qr.make(fit=True)
-    print("Scan this QR code to open the public file URL:")
-    if os.name == "nt":
-        # Console character cells vary by CMD/PowerShell font and scaling, so
-        # a camera cannot reliably decode a character-art QR code.  Write a
-        # standards-compliant vector QR instead; browsers render every module
-        # as a true square and can be scanned from the screen.
-        matrix = qr.get_matrix()
-        size = len(matrix)
-        modules = []
-        for row, values in enumerate(matrix):
-            for col, module in enumerate(values):
-                if module:
-                    modules.append('<rect x="{}" y="{}" width="1" height="1"/>'.format(col, row))
-        svg = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {0} {0}" '
-            'shape-rendering="crispEdges">\n'
-            '<rect width="100%" height="100%" fill="white"/>\n'
-            '<g fill="black">{1}</g>\n</svg>\n'
-        ).format(size, "".join(modules))
-        path = Path(tempfile.gettempdir()) / "qshare-qr-{}.svg".format(uuid.uuid4().hex[:10])
-        path.write_text(svg, encoding="utf-8")
-        print("Windows QR code saved to: {}".format(path))
-        print("It is opening in your browser; scan the displayed QR code with your camera.")
-        try:
-            webbrowser.open(path.as_uri())
-        except (OSError, ValueError):
-            pass
-        return
-    # qrcode's terminal renderer packs two QR rows into one character row.
-    # It handles the quiet zone consistently in CMD, PowerShell, and Unix
-    # terminals without platform-specific character stretching.
-    qr.print_ascii(invert=True)
+def _load_qrcode():
+    import qrcode
+
+    return qrcode
+
+
+def print_qr_code(url: str) -> bool:
+    """Render a QR code when possible without affecting the active share."""
+    try:
+        qrcode = _load_qrcode()
+        qr = qrcode.QRCode(
+            # A four-module quiet zone is required by the QR specification and
+            # lets ordinary camera apps reliably detect the finder patterns.
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            border=4,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+        print("Scan this QR code to open the public file URL:")
+        if os.name == "nt":
+            # Console character cells vary by CMD/PowerShell font and scaling, so
+            # a camera cannot reliably decode a character-art QR code.  Write a
+            # standards-compliant vector QR instead; browsers render every module
+            # as a true square and can be scanned from the screen.
+            matrix = qr.get_matrix()
+            size = len(matrix)
+            modules = []
+            for row, values in enumerate(matrix):
+                for col, module in enumerate(values):
+                    if module:
+                        modules.append('<rect x="{}" y="{}" width="1" height="1"/>'.format(col, row))
+            svg = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {0} {0}" '
+                'shape-rendering="crispEdges">\n'
+                '<rect width="100%" height="100%" fill="white"/>\n'
+                '<g fill="black">{1}</g>\n</svg>\n'
+            ).format(size, "".join(modules))
+            path = os.path.join(tempfile.gettempdir(), "qshare-qr-{}.svg".format(uuid.uuid4().hex[:10]))
+            with open(path, "w", encoding="utf-8") as output:
+                output.write(svg)
+            print("Windows QR code saved to: {}".format(path))
+            print("It is opening in your browser; scan the displayed QR code with your camera.")
+            try:
+                webbrowser.open(urljoin("file:", pathname2url(path)))
+            except (OSError, ValueError):
+                pass
+            return True
+        # qrcode's terminal renderer packs two QR rows into one character row.
+        # It handles the quiet zone consistently in CMD, PowerShell, and Unix
+        # terminals without platform-specific character stretching.
+        qr.print_ascii(invert=True)
+        return True
+    except Exception as exc:
+        print("QR code unavailable: {}. Use the public URL shown above.".format(exc), file=sys.stderr)
+        return False
 
 
 class ShareHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        # ``directory=`` was added to SimpleHTTPRequestHandler in Python 3.7.
+        # Store it ourselves so Python 3.6 can serve the selected file's
+        # parent directory without changing the process working directory.
+        self._share_directory = kwargs.pop("directory", os.getcwd())
+        super().__init__(*args, **kwargs)
+
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
+
+    def translate_path(self, path: str) -> str:
+        """Resolve request paths below the configured share directory."""
+        path = posixpath.normpath(unquote(urlparse(path).path))
+        words = [word for word in path.split("/") if word]
+        translated = str(self._share_directory)
+        for word in words:
+            if os.path.dirname(word) or word in (os.curdir, os.pardir):
+                continue
+            translated = os.path.join(translated, word)
+        return translated
 
     def copyfile(self, source: object, outputfile: object) -> None:
         try:
@@ -142,7 +178,9 @@ class ShareHandler(SimpleHTTPRequestHandler):
             return
 
 
-class ShareHTTPServer(ThreadingHTTPServer):
+class ShareHTTPServer(ThreadingMixIn, HTTPServer):
+    # ThreadingHTTPServer was added in Python 3.7.  This is its Python 3.6
+    # compatible equivalent.
     daemon_threads = True
 
     def handle_error(self, request: object, client_address: object) -> None:
@@ -154,7 +192,7 @@ class ShareHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def start_local_http_server(file_path: Path, port: int) -> Tuple[ThreadingHTTPServer, threading.Thread]:
+def start_local_http_server(file_path: Path, port: int) -> Tuple[ShareHTTPServer, threading.Thread]:
     if not file_path.exists():
         raise FileNotFoundError(f"File does not exist: {file_path}")
     if not file_path.is_file():
@@ -166,7 +204,7 @@ def start_local_http_server(file_path: Path, port: int) -> Tuple[ThreadingHTTPSe
     return server, thread
 
 
-def stop_local_http_server(server: ThreadingHTTPServer) -> None:
+def stop_local_http_server(server: ShareHTTPServer) -> None:
     try:
         server.shutdown()
     except Exception:
@@ -487,7 +525,7 @@ def start_background_process(argv: List[str]) -> int:
     return 0
 
 
-def detach_existing_process(server: ThreadingHTTPServer) -> Optional[bool]:
+def detach_existing_process(server: ShareHTTPServer) -> Optional[bool]:
     """Detach while retaining the existing HTTP socket and tunnel process.
 
     Returns True in the short-lived parent, False in the detached child, and
