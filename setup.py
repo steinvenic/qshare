@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="qshare",
-    version="0.3.4",
+    version="0.3.5",
     description="Quickly share local files through a public TryCloudflare tunnel.",
     author="steinvenic",
     author_email="761701732@qq.com",
