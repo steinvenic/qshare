@@ -60,9 +60,10 @@ If you keep the file, manage it in the CNB Release yourself.
 Add `--cf` to share through a TryCloudflare tunnel instead: the file is served from your
 machine (no CNB storage) with a default TTL of 2 hours.
 
-On Windows the terminal QR code is shown in CMD as on other platforms; at the very end
-qshare asks whether to also open a browser QR page (open by default). The browser page
-shows the download link above the QR code with a one-click copy button.
+On Windows the terminal QR code is shown in CMD as on other platforms; if the CNB file
+was kept, qshare asks at the very end whether to also open a browser QR page (open by
+default). After the CNB file is deleted the question is skipped (the link is dead). The
+browser page shows the download link above the QR code with a one-click copy button.
 
 ## DNS troubleshooting
 

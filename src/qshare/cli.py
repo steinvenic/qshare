@@ -637,6 +637,10 @@ def run_cnb_upload(file_path: str) -> int:
             print("已删除 CNB 上的文件 / Uploaded file deleted from CNB.")
         except Exception as exc:
             print("删除 CNB 文件失败 / Failed to delete the CNB file: {}".format(exc), file=sys.stderr)
+            return 0
+        # The browser QR page would show a dead link once the CNB asset is
+        # deleted, so do not offer to open it.
+        return 0
     maybe_open_qr_in_browser(public_url)
     return 0
 

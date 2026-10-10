@@ -470,7 +470,11 @@ def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeyp
     )
     monkeypatch.setattr("qshare.cnb.delete_cnb_assets", lambda tag, name: delete_calls.append((tag, name)) or 1)
     monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
-    monkeypatch.setattr("qshare.cli.maybe_open_qr_in_browser", lambda url: None)
+    browser_prompts = []
+    monkeypatch.setattr(
+        "qshare.cli.maybe_open_qr_in_browser",
+        lambda url: browser_prompts.append(url),
+    )
     monkeypatch.setattr("builtins.input", lambda value: prompts.append(value) or "")
 
     assert run_cnb_upload(str(file_path)) == 0
@@ -483,6 +487,9 @@ def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeyp
     assert delete_calls == [("2026-10-10", "demo.zip")]
     # The local file is never touched by the CNB channel.
     assert file_path.exists()
+    # The CNB asset was deleted, so the QR page would show a dead link:
+    # the browser page must not be offered.
+    assert browser_prompts == []
 
 
 def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path, capsys):
@@ -500,11 +507,17 @@ def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path
         lambda tag, name: pytest.fail("should not delete the CNB asset"),
     )
     monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
-    monkeypatch.setattr("qshare.cli.maybe_open_qr_in_browser", lambda url: None)
+    browser_prompts = []
+    monkeypatch.setattr(
+        "qshare.cli.maybe_open_qr_in_browser",
+        lambda url: browser_prompts.append(url),
+    )
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
 
     assert run_cnb_upload(str(file_path)) == 0
     assert "已保留 CNB 上的文件" in capsys.readouterr().out
+    # The file stays on CNB, so the browser QR page is still offered.
+    assert browser_prompts == ["https://e.cnb.cool/demo.zip"]
 
     file_path = tmp_path / "demo.zip"
     file_path.write_text("data")
