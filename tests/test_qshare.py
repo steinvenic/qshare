@@ -95,6 +95,17 @@ def test_build_parser_defaults_to_two_hours():
     assert not hasattr(args, "daemon")
 
 
+def test_build_parser_defaults_to_cnb_upload():
+    args = build_parser().parse_args(["demo.txt"])
+    assert args.cf is False
+    assert args.cnb is False
+
+
+def test_build_parser_accepts_cf_flag():
+    args = build_parser().parse_args(["demo.txt", "--cf"])
+    assert args.cf is True
+
+
 def test_should_run_in_background_accepts_d_choice():
     assert should_run_in_background("d") is True
     assert should_run_in_background(" D ") is True
@@ -188,6 +199,7 @@ def test_run_share_keeps_public_url_when_qr_code_fails(monkeypatch, tmp_path, ca
         lambda *_args, **_kwargs: (type("Proc", (), {"poll": lambda self: 0})(), "https://abc.trycloudflare.com"),
     )
     monkeypatch.setattr("qshare.cli._load_qrcode", lambda: (_ for _ in ()).throw(ImportError("broken qrcode")))
+    monkeypatch.setattr("qshare.cli.maybe_open_qr_in_browser", lambda url: None)
 
     assert run_share(str(file_path), ttl_seconds=60, port=12345) == 0
 
@@ -278,7 +290,39 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
     assert ("print", {"invert": True}) in calls
 
 
-def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch, tmp_path):
+def test_print_qr_code_renders_in_terminal_on_windows(monkeypatch):
+    # Windows CMD now shows the same terminal QR as other platforms; the
+    # browser page is a separate opt-in step.
+    printed = []
+
+    class QRCode:
+        def __init__(self, **kwargs):
+            pass
+
+        def add_data(self, value):
+            pass
+
+        def make(self, **kwargs):
+            pass
+
+        def print_ascii(self, **kwargs):
+            printed.append(kwargs)
+
+    qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
+    monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
+    monkeypatch.setattr("qshare.cli.os.name", "nt")
+    monkeypatch.setattr(
+        "qshare.cli.webbrowser.open",
+        lambda target: pytest.fail("terminal QR must not open a browser"),
+    )
+
+    from qshare.cli import print_qr_code
+
+    print_qr_code("https://department.trycloudflare.com/file.zip")
+    assert printed == [{"invert": True}]
+
+
+def test_maybe_open_qr_in_browser_prompts_last_on_windows(monkeypatch, tmp_path):
     class QRCode:
         def __init__(self, **kwargs):
             pass
@@ -293,7 +337,7 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch, tmp_path):
             return [[True, False], [False, True]]
 
         def print_ascii(self, **kwargs):
-            raise AssertionError("Windows should use square-module rendering")
+            raise AssertionError("the browser page must not re-render the terminal QR")
 
     qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
     monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
@@ -301,12 +345,14 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch, tmp_path):
     monkeypatch.setattr("qshare.cli.tempfile.gettempdir", lambda: str(tmp_path))
     opened = []
     monkeypatch.setattr("qshare.cli.webbrowser.open", lambda target: opened.append(target) or True)
+    answers = []
+    monkeypatch.setattr("builtins.input", lambda value: answers.append(value) or "")
 
-    from qshare.cli import print_qr_code
+    from qshare.cli import maybe_open_qr_in_browser
 
     url = "https://department.trycloudflare.com/file.zip"
-    print_qr_code(url)
-
+    # The default (empty answer) opens the browser page.
+    maybe_open_qr_in_browser(url)
     assert opened and opened[0].startswith("file:")
     from urllib.parse import urlparse
     from urllib.request import url2pathname
@@ -314,12 +360,42 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch, tmp_path):
     page_path = url2pathname(urlparse(opened[0]).path)
     with open(page_path, encoding="utf-8") as handle:
         page = handle.read()
-    # The browser page must show the download link above the QR code and
-    # offer a one-click copy button.
+    # The browser page must show the download link above the QR code,
+    # offer a one-click copy button, and keep the button in place after
+    # its text changes to the copied state.
     assert url in page
     assert "copyLink" in page
     assert "<svg" in page
     assert page.index("<p id=\"link\">") < page.index("<svg")
+    assert 'id="copy"' in page
+    assert "white-space: nowrap" in page
+    assert "min-width: 220px" in page
+
+
+def test_maybe_open_qr_in_browser_skipped_when_user_answers_n(monkeypatch, capsys):
+    monkeypatch.setattr("qshare.cli.os.name", "nt")
+    monkeypatch.setattr(
+        "qshare.cli._show_qr_page_windows",
+        lambda url: pytest.fail("answering n must not open the browser page"),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+
+    from qshare.cli import maybe_open_qr_in_browser
+
+    maybe_open_qr_in_browser("https://department.trycloudflare.com/file.zip")
+    assert "已跳过浏览器二维码页面" in capsys.readouterr().out
+
+
+def test_maybe_open_qr_in_browser_noop_on_unix(monkeypatch):
+    monkeypatch.setattr("qshare.cli.os.name", "posix")
+    monkeypatch.setattr(
+        "qshare.cli.ask_open_qr_in_browser",
+        lambda: pytest.fail("Unix terminals must not be asked to open a browser"),
+    )
+
+    from qshare.cli import maybe_open_qr_in_browser
+
+    maybe_open_qr_in_browser("https://department.trycloudflare.com/file.zip")
 
 
 def test_confirm_delete_cnb_file_defaults_to_delete(monkeypatch):
@@ -394,6 +470,7 @@ def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeyp
     )
     monkeypatch.setattr("qshare.cnb.delete_cnb_assets", lambda tag, name: delete_calls.append((tag, name)) or 1)
     monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr("qshare.cli.maybe_open_qr_in_browser", lambda url: None)
     monkeypatch.setattr("builtins.input", lambda value: prompts.append(value) or "")
 
     assert run_cnb_upload(str(file_path)) == 0
@@ -423,6 +500,7 @@ def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path
         lambda tag, name: pytest.fail("should not delete the CNB asset"),
     )
     monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr("qshare.cli.maybe_open_qr_in_browser", lambda url: None)
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
 
     assert run_cnb_upload(str(file_path)) == 0

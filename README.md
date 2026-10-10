@@ -35,17 +35,18 @@ qshare 会优先使用 `PATH` 中已有的 `cloudflared`。没有匹配平台 wh
 qshare /path/to/file.zip
 qshare /path/to/file.zip --ttl 2h
 qshare /path/to/file.zip --ttl 900
-qshare /path/to/file.zip --port 8000
-qshare /path/to/file.zip --cnb
+qshare /path/to/file.zip --port 8000 --cf
 ```
 
 成功后会显示醒目的公网文件链接及二维码。程序只接受真实的 `*.trycloudflare.com` 分享域名，会拒绝 `api.trycloudflare.com` 并自动重试。Unix-like 系统可在提示处输入 `d` 后台运行；Windows 始终前台运行。前台运行达到 TTL 后会提示并停止分享。
 
-使用 `--cnb` 会将文件上传到 CNB Release 并返回下载地址；文件会存储在 CNB，请先加密私密文件。上传过程中会显示进度。上传完成后程序会询问是否立即删除 CNB 上的该文件，默认删除（直接回车即删除，输入 `n` 保留）。本地文件不会被删除。
+默认使用 CNB 方式上传文件到 CNB Release 并返回下载地址；文件会存储在 CNB，请先加密私密文件。上传过程中会显示进度。上传完成后程序会询问是否立即删除 CNB 上的该文件，默认删除（直接回车即删除，输入 `n` 保留）。本地文件不会被删除。
 
 CNB 渠道适合需要持久下载地址或 Cloudflare 不稳定的场景。上传完成后可直接使用 CNB 下载链接；如果选择保留，CNB Release 中的文件需要自行管理。
 
-Windows 下二维码会用默认浏览器打开：页面在二维码上方显示下载链接，并支持一键复制。二维码页面打开后，才会询问是否删除 CNB 上的文件。
+加 `--cf` 改用 TryCloudflare 隧道分享：文件由本机提供，不依赖 CNB 存储，默认有效期 2 小时。
+
+Windows 下 CMD 终端也会显示二维码，与其他平台一致；最后会询问是否在浏览器中打开二维码页面（默认打开）。浏览器页面在二维码上方显示下载链接，并支持一键复制。
 
 ## DNS 排查
 

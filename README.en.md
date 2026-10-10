@@ -41,8 +41,7 @@ required on platforms without a matching qshare wheel.
 qshare /path/to/file.zip
 qshare /path/to/file.zip --ttl 2h
 qshare /path/to/file.zip --ttl 900
-qshare /path/to/file.zip --port 8000
-qshare /path/to/file.zip --cnb
+qshare /path/to/file.zip --port 8000 --cf
 ```
 
 qshare displays a prominent public URL and a terminal QR code. It accepts only a real
@@ -50,7 +49,7 @@ qshare displays a prominent public URL and a terminal QR code. It accepts only a
 Unix-like systems, enter `d` at the prompt to run in the background; Windows always runs in
 the foreground. A foreground share prints a notice and stops when its TTL expires.
 
-With `--cnb`, qshare uploads the file to a CNB Release and prints its download URL. The file
+By default qshare uploads the file to a CNB Release and prints its download URL. The file
 is stored in CNB; encrypt private files first. Upload progress is shown while transferring.
 After the upload finishes, qshare asks whether to delete the uploaded file from CNB
 immediately; the default is to delete it (press Enter to delete, enter `n` to keep it). The
@@ -58,9 +57,12 @@ local file is never deleted.
 The CNB channel is useful when you need a persistent download URL or Cloudflare is unreliable.
 If you keep the file, manage it in the CNB Release yourself.
 
-On Windows the QR code opens in the default browser: the page shows the download link above
-the QR code with a one-click copy button. The delete question is asked only after that page
-has opened.
+Add `--cf` to share through a TryCloudflare tunnel instead: the file is served from your
+machine (no CNB storage) with a default TTL of 2 hours.
+
+On Windows the terminal QR code is shown in CMD as on other platforms; at the very end
+qshare asks whether to also open a browser QR page (open by default). The browser page
+shows the download link above the QR code with a one-click copy button.
 
 ## DNS troubleshooting
 

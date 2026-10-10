@@ -120,17 +120,21 @@ def _load_qrcode():
     return qrcode
 
 
-def _show_qr_page_windows(qr: object, url: str) -> None:
+def _show_qr_page_windows(url: str) -> None:
     """Write the QR code plus a copyable download link and open it in a browser.
 
     Console character cells vary by CMD/PowerShell font and scaling, so a
-    camera cannot reliably decode a character-art QR code.  Write a
-    standards-compliant vector QR into a small HTML page instead; browsers
-    render every module as a true square and can be scanned from the screen.
-    The page also shows the download link with a one-click copy button.
+    camera cannot always decode the terminal QR code.  This page renders a
+    standards-compliant vector QR; browsers render every module as a true
+    square and can be scanned from the screen.  The page also shows the
+    download link above the QR code with a one-click copy button.
     """
     from xml.sax.saxutils import escape
 
+    qrcode = _load_qrcode()
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
     matrix = qr.get_matrix()
     size = len(matrix)
     modules = []
@@ -156,19 +160,20 @@ body {{ font-family: sans-serif; text-align: center; background: #f0f0f0; }}
         border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }}
 svg {{ image-rendering: pixelated; width: 320px; max-width: 100%; }}
 #link {{ word-break: break-all; margin: 16px 0 12px; }}
-button {{ padding: 8px 20px; font-size: 16px; cursor: pointer; }}
+button {{ padding: 8px 20px; font-size: 16px; cursor: pointer;
+          white-space: nowrap; min-width: 220px; }}
 </style>
 </head>
 <body>
 <div class="box">
 <h2>qshare</h2>
 <p id="link">{url}</p>
-<button onclick="copyLink()">复制链接 / Copy link</button>
+<button id="copy" onclick="copyLink()">复制链接 / Copy link</button>
 {svg}
 </div>
 <script>
 function copyLink() {{
-  var button = document.getElementsByTagName("button")[0];
+  var button = document.getElementById("copy");
   var done = function () {{ button.textContent = "已复制 / Copied"; }};
   if (navigator.clipboard && navigator.clipboard.writeText) {{
     navigator.clipboard.writeText({url_json}).then(done);
@@ -197,8 +202,32 @@ function copyLink() {{
         pass
 
 
+def ask_open_qr_in_browser() -> bool:
+    try:
+        prompt = "在浏览器中打开二维码页面？[Y/n] / Open the QR page in your browser? [Y/n]: "
+        if _text_for_stream(prompt, sys.stdout) != prompt:
+            prompt = "Open the QR page in your browser? [Y/n]: "
+        answer = input(prompt)
+    except EOFError:
+        return False
+    return answer.strip().lower() not in ("n", "no")
+
+
+def maybe_open_qr_in_browser(url: str) -> None:
+    """On Windows, offer to open the browser QR page after other prompts."""
+    if os.name != "nt":
+        return
+    if ask_open_qr_in_browser():
+        try:
+            _show_qr_page_windows(url)
+        except Exception as exc:
+            print("QR browser page unavailable: {}".format(exc), file=sys.stderr)
+    else:
+        print("已跳过浏览器二维码页面 / Browser QR page skipped.")
+
+
 def print_qr_code(url: str) -> bool:
-    """Render a QR code when possible without affecting the active share."""
+    """Render a terminal QR code on every platform, including Windows CMD."""
     try:
         qrcode = _load_qrcode()
         qr = qrcode.QRCode(
@@ -209,9 +238,6 @@ def print_qr_code(url: str) -> bool:
         )
         qr.add_data(url)
         qr.make(fit=True)
-        if os.name == "nt":
-            _show_qr_page_windows(qr, url)
-            return True
         print("Scan this QR code to open the public file URL:")
         # qrcode's terminal renderer packs two QR rows into one character row.
         # It handles the quiet zone consistently in CMD, PowerShell, and Unix
@@ -503,6 +529,7 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
     except KeyboardInterrupt:
         print("\nInterrupted by user.")
         stop_all()
+        maybe_open_qr_in_browser(public_file_url)
         return 0
     except Exception:
         stop_all()
@@ -512,6 +539,7 @@ def run_share(file_path: str, ttl_seconds: int = DEFAULT_TTL_SECONDS, port: Opti
         if not detached:
             stop_all()
 
+    maybe_open_qr_in_browser(public_file_url)
     return 0
 
 
@@ -539,9 +567,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional fixed port for the local HTTP server. A random free port is used when omitted.",
     )
     parser.add_argument(
+        "--cf",
+        action="store_true",
+        help="Share through a TryCloudflare tunnel. By default the file is uploaded to the configured CNB release.",
+    )
+    parser.add_argument(
         "--cnb",
         action="store_true",
-        help="Upload the file to the configured CNB release instead of sharing through TryCloudflare.",
+        help="Upload the file to the configured CNB release (the default behaviour).",
     )
     return parser
 
@@ -593,19 +626,18 @@ def run_cnb_upload(file_path: str) -> int:
     print("\n" + "=" * 72)
     print("PUBLIC FILE URL: {}".format(public_url))
     print("=" * 72 + "\n", flush=True)
-    # On Windows the QR code opens in the default browser; make sure that
-    # happens before the user is asked about deleting the uploaded file.
     print_qr_code(public_url)
     if not confirm_delete_cnb_file():
         print("已保留 CNB 上的文件 / Uploaded file kept on CNB.")
-        return 0
-    from .cnb import delete_cnb_assets
+    else:
+        from .cnb import delete_cnb_assets
 
-    try:
-        delete_cnb_assets(tag, source.name)
-        print("已删除 CNB 上的文件 / Uploaded file deleted from CNB.")
-    except Exception as exc:
-        print("删除 CNB 文件失败 / Failed to delete the CNB file: {}".format(exc), file=sys.stderr)
+        try:
+            delete_cnb_assets(tag, source.name)
+            print("已删除 CNB 上的文件 / Uploaded file deleted from CNB.")
+        except Exception as exc:
+            print("删除 CNB 文件失败 / Failed to delete the CNB file: {}".format(exc), file=sys.stderr)
+    maybe_open_qr_in_browser(public_url)
     return 0
 
 
@@ -674,7 +706,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     print_privacy_warning()
 
-    if args.cnb:
+    if not args.cf:
         try:
             return run_cnb_upload(args.file)
         except KeyboardInterrupt:
