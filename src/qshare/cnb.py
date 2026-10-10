@@ -111,8 +111,28 @@ def get_download_url(tag, name):
     raise RuntimeError("uploaded asset was not found in CNB release")
 
 
+def delete_cnb_assets(tag, name):
+    """Delete every server-side copy of an asset from its release."""
+    deleted = 0
+    for release in request_json(API + "/-/releases"):
+        if release.get("tag_name") != tag:
+            continue
+        release_id = release.get("id")
+        if release_id is None:
+            continue
+        for asset in release.get("assets", []):
+            if asset.get("name") != name:
+                continue
+            request_json(
+                "{}/-/releases/{}/assets/{}".format(API, release_id, asset["id"]),
+                method="DELETE",
+            )
+            deleted += 1
+    return deleted
+
+
 def upload_to_cnb(path):
     tag = datetime.date.today().isoformat()
     release_id = get_or_create_release(tag)
     upload_file(path, release_id)
-    return get_download_url(tag, os.path.basename(path))
+    return get_download_url(tag, os.path.basename(path)), tag

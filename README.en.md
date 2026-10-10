@@ -52,9 +52,15 @@ the foreground. A foreground share prints a notice and stops when its TTL expire
 
 With `--cnb`, qshare uploads the file to a CNB Release and prints its download URL. The file
 is stored in CNB; encrypt private files first. Upload progress is shown while transferring.
+After the upload finishes, qshare asks whether to delete the uploaded file from CNB
+immediately; the default is to delete it (press Enter to delete, enter `n` to keep it). The
+local file is never deleted.
 The CNB channel is useful when you need a persistent download URL or Cloudflare is unreliable.
-qshare asks for explicit confirmation before uploading and starts only when you enter `y`.
-Files in the CNB Release are not deleted automatically by qshare; manage them as needed.
+If you keep the file, manage it in the CNB Release yourself.
+
+On Windows the QR code opens in the default browser: the page shows the download link above
+the QR code with a one-click copy button. The delete question is asked only after that page
+has opened.
 
 ## DNS troubleshooting
 

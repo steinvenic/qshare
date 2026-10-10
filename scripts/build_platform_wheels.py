@@ -6,6 +6,7 @@ Run after ``uv build``:
 import argparse
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -46,7 +47,10 @@ def extract_asset(asset, output):
 def make_wheel(base_wheel, binary, filename, tag, dist_dir):
     unpack_dir = Path(tempfile.mkdtemp(prefix="qshare-wheel-"))
     try:
-        subprocess.run(["uvx", "--from", "wheel", "wheel", "unpack", str(base_wheel), "--dest", str(unpack_dir)], check=True)
+        wheel_command = [sys.executable, "-m", "wheel"]
+        subprocess.run(
+            wheel_command + ["unpack", str(base_wheel), "--dest", str(unpack_dir)], check=True
+        )
         package_dir = next(unpack_dir.iterdir())
         wheel_metadata = next(package_dir.glob("*.dist-info/WHEEL"))
         lines = [
@@ -59,7 +63,9 @@ def make_wheel(base_wheel, binary, filename, tag, dist_dir):
         binary_target = package_dir / "qshare" / "_binaries" / filename
         binary_target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(str(binary), str(binary_target))
-        subprocess.run(["uvx", "--from", "wheel", "wheel", "pack", str(package_dir), "--dest-dir", str(dist_dir)], check=True)
+        subprocess.run(
+            wheel_command + ["pack", str(package_dir), "--dest-dir", str(dist_dir)], check=True
+        )
         expected = dist_dir / (base_wheel.stem.replace("py3-none-any", "py3-none-{}".format(tag)) + ".whl")
         if not expected.is_file():
             raise RuntimeError("wheel pack did not create {}".format(expected))

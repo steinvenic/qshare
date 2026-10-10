@@ -1,5 +1,6 @@
 import argparse
 import builtins
+import json
 import os
 import posixpath
 import re
@@ -119,6 +120,83 @@ def _load_qrcode():
     return qrcode
 
 
+def _show_qr_page_windows(qr: object, url: str) -> None:
+    """Write the QR code plus a copyable download link and open it in a browser.
+
+    Console character cells vary by CMD/PowerShell font and scaling, so a
+    camera cannot reliably decode a character-art QR code.  Write a
+    standards-compliant vector QR into a small HTML page instead; browsers
+    render every module as a true square and can be scanned from the screen.
+    The page also shows the download link with a one-click copy button.
+    """
+    from xml.sax.saxutils import escape
+
+    matrix = qr.get_matrix()
+    size = len(matrix)
+    modules = []
+    for row, values in enumerate(matrix):
+        for col, module in enumerate(values):
+            if module:
+                modules.append('<rect x="{}" y="{}" width="1" height="1"/>'.format(col, row))
+    svg = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {0} {0}" '
+        'shape-rendering="crispEdges">\n'
+        '<rect width="100%" height="100%" fill="white"/>\n'
+        '<g fill="black">{1}</g>\n</svg>\n'
+    ).format(size, "".join(modules))
+    document = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>qshare QR code</title>
+<style>
+body {{ font-family: sans-serif; text-align: center; background: #f0f0f0; }}
+.box {{ background: #fff; margin: 40px auto; padding: 24px; max-width: 480px;
+        border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }}
+svg {{ image-rendering: pixelated; width: 320px; max-width: 100%; }}
+#link {{ word-break: break-all; margin: 16px 0 12px; }}
+button {{ padding: 8px 20px; font-size: 16px; cursor: pointer; }}
+</style>
+</head>
+<body>
+<div class="box">
+<h2>qshare</h2>
+<p id="link">{url}</p>
+<button onclick="copyLink()">复制链接 / Copy link</button>
+{svg}
+</div>
+<script>
+function copyLink() {{
+  var button = document.getElementsByTagName("button")[0];
+  var done = function () {{ button.textContent = "已复制 / Copied"; }};
+  if (navigator.clipboard && navigator.clipboard.writeText) {{
+    navigator.clipboard.writeText({url_json}).then(done);
+  }} else {{
+    var helper = document.createElement("input");
+    helper.value = {url_json};
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand("copy");
+    document.removeChild(helper);
+    done();
+  }}
+}}
+</script>
+</body>
+</html>
+""".format(svg=svg, url=escape(url), url_json=json.dumps(url))
+    path = os.path.join(tempfile.gettempdir(), "qshare-qr-{}.html".format(uuid.uuid4().hex[:10]))
+    with open(path, "w", encoding="utf-8") as output:
+        output.write(document)
+    print("Windows QR code saved to: {}".format(path))
+    print("It is opening in your browser; scan the displayed QR code with your camera.")
+    try:
+        webbrowser.open(urljoin("file:", pathname2url(path)))
+    except (OSError, ValueError):
+        pass
+
+
 def print_qr_code(url: str) -> bool:
     """Render a QR code when possible without affecting the active share."""
     try:
@@ -131,36 +209,10 @@ def print_qr_code(url: str) -> bool:
         )
         qr.add_data(url)
         qr.make(fit=True)
-        print("Scan this QR code to open the public file URL:")
         if os.name == "nt":
-            # Console character cells vary by CMD/PowerShell font and scaling, so
-            # a camera cannot reliably decode a character-art QR code.  Write a
-            # standards-compliant vector QR instead; browsers render every module
-            # as a true square and can be scanned from the screen.
-            matrix = qr.get_matrix()
-            size = len(matrix)
-            modules = []
-            for row, values in enumerate(matrix):
-                for col, module in enumerate(values):
-                    if module:
-                        modules.append('<rect x="{}" y="{}" width="1" height="1"/>'.format(col, row))
-            svg = (
-                '<?xml version="1.0" encoding="UTF-8"?>\n'
-                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {0} {0}" '
-                'shape-rendering="crispEdges">\n'
-                '<rect width="100%" height="100%" fill="white"/>\n'
-                '<g fill="black">{1}</g>\n</svg>\n'
-            ).format(size, "".join(modules))
-            path = os.path.join(tempfile.gettempdir(), "qshare-qr-{}.svg".format(uuid.uuid4().hex[:10]))
-            with open(path, "w", encoding="utf-8") as output:
-                output.write(svg)
-            print("Windows QR code saved to: {}".format(path))
-            print("It is opening in your browser; scan the displayed QR code with your camera.")
-            try:
-                webbrowser.open(urljoin("file:", pathname2url(path)))
-            except (OSError, ValueError):
-                pass
+            _show_qr_page_windows(qr, url)
             return True
+        print("Scan this QR code to open the public file URL:")
         # qrcode's terminal renderer packs two QR rows into one character row.
         # It handles the quiet zone consistently in CMD, PowerShell, and Unix
         # terminals without platform-specific character stretching.
@@ -519,6 +571,17 @@ def confirm_cnb_upload() -> bool:
     return answer.strip().lower() == "y"
 
 
+def confirm_delete_cnb_file() -> bool:
+    try:
+        prompt = "上传完成。是否删除 CNB 上的该文件？输入 n 保留 / Delete the uploaded file from CNB? [Y/n]: "
+        if _text_for_stream(prompt, sys.stdout) != prompt:
+            prompt = "Delete the uploaded file from CNB? [Y/n]: "
+        answer = input(prompt)
+    except EOFError:
+        return False
+    return answer.strip().lower() not in ("n", "no")
+
+
 def run_cnb_upload(file_path: str) -> int:
     source = Path(file_path).expanduser().resolve()
     if not source.is_file():
@@ -526,11 +589,23 @@ def run_cnb_upload(file_path: str) -> int:
     from .cnb import upload_to_cnb
 
     print("Uploading file to CNB Release; the file will be stored there.", flush=True)
-    public_url = upload_to_cnb(str(source))
+    public_url, tag = upload_to_cnb(str(source))
     print("\n" + "=" * 72)
     print("PUBLIC FILE URL: {}".format(public_url))
     print("=" * 72 + "\n", flush=True)
+    # On Windows the QR code opens in the default browser; make sure that
+    # happens before the user is asked about deleting the uploaded file.
     print_qr_code(public_url)
+    if not confirm_delete_cnb_file():
+        print("已保留 CNB 上的文件 / Uploaded file kept on CNB.")
+        return 0
+    from .cnb import delete_cnb_assets
+
+    try:
+        delete_cnb_assets(tag, source.name)
+        print("已删除 CNB 上的文件 / Uploaded file deleted from CNB.")
+    except Exception as exc:
+        print("删除 CNB 文件失败 / Failed to delete the CNB file: {}".format(exc), file=sys.stderr)
     return 0
 
 
@@ -600,9 +675,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     print_privacy_warning()
 
     if args.cnb:
-        if not confirm_cnb_upload():
-            print("已取消上传 / Upload cancelled.")
-            return 0
         try:
             return run_cnb_upload(args.file)
         except KeyboardInterrupt:

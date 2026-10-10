@@ -278,7 +278,7 @@ def test_print_qr_code_renders_the_public_url(monkeypatch):
     assert ("print", {"invert": True}) in calls
 
 
-def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch):
+def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch, tmp_path):
     class QRCode:
         def __init__(self, **kwargs):
             pass
@@ -298,10 +298,151 @@ def test_print_qr_code_uses_library_renderer_on_windows(monkeypatch):
     qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
     monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
     monkeypatch.setattr("qshare.cli.os.name", "nt")
+    monkeypatch.setattr("qshare.cli.tempfile.gettempdir", lambda: str(tmp_path))
+    opened = []
+    monkeypatch.setattr("qshare.cli.webbrowser.open", lambda target: opened.append(target) or True)
 
     from qshare.cli import print_qr_code
 
-    print_qr_code("https://department.trycloudflare.com/file.zip")
+    url = "https://department.trycloudflare.com/file.zip"
+    print_qr_code(url)
+
+    assert opened and opened[0].startswith("file:")
+    from urllib.parse import urlparse
+    from urllib.request import url2pathname
+
+    page_path = url2pathname(urlparse(opened[0]).path)
+    with open(page_path, encoding="utf-8") as handle:
+        page = handle.read()
+    # The browser page must show the download link above the QR code and
+    # offer a one-click copy button.
+    assert url in page
+    assert "copyLink" in page
+    assert "<svg" in page
+    assert page.index("<p id=\"link\">") < page.index("<svg")
+
+
+def test_confirm_delete_cnb_file_defaults_to_delete(monkeypatch):
+    from qshare.cli import confirm_delete_cnb_file
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    assert confirm_delete_cnb_file() is True
+    monkeypatch.setattr("builtins.input", lambda _prompt: "\n")
+    assert confirm_delete_cnb_file() is True
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+    assert confirm_delete_cnb_file() is False
+    monkeypatch.setattr("builtins.input", lambda _prompt: "NO")
+    assert confirm_delete_cnb_file() is False
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert confirm_delete_cnb_file() is True
+
+
+def test_confirm_delete_cnb_file_uses_english_fallback_for_ascii_stdout(monkeypatch):
+    from qshare.cli import confirm_delete_cnb_file
+
+    class ASCIIStream(StringIO):
+        encoding = "ascii"
+
+    prompt = []
+    monkeypatch.setattr("qshare.cli.sys.stdout", ASCIIStream())
+    monkeypatch.setattr("builtins.input", lambda value: prompt.append(value) or "n")
+
+    assert confirm_delete_cnb_file() is False
+    assert prompt == ["Delete the uploaded file from CNB? [Y/n]: "]
+
+
+def test_delete_cnb_assets_removes_matching_assets(monkeypatch):
+    from qshare import cnb
+
+    releases = [
+        {
+            "tag_name": "2026-10-10",
+            "id": 7,
+            "assets": [
+                {"id": 11, "name": "demo.zip", "browser_download_url": "u"},
+                {"id": 12, "name": "other.zip", "browser_download_url": "u"},
+            ],
+        },
+        {"tag_name": "2026-10-09", "id": 8, "assets": [{"id": 13, "name": "demo.zip"}]},
+    ]
+    calls = []
+
+    def fake_request_json(url, method="GET", payload=None):
+        calls.append((url, method))
+        return releases if method == "GET" else {}
+
+    monkeypatch.setattr(cnb, "request_json", fake_request_json)
+
+    assert cnb.delete_cnb_assets("2026-10-10", "demo.zip") == 1
+    assert calls == [
+        ("https://api.cnb.cool/steinveni/qshare/-/releases", "GET"),
+        ("https://api.cnb.cool/steinveni/qshare/-/releases/7/assets/11", "DELETE"),
+    ]
+
+
+def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeypatch, tmp_path, capsys):
+    from qshare.cli import run_cnb_upload
+
+    file_path = tmp_path / "demo.zip"
+    file_path.write_text("data")
+    prompts = []
+    delete_calls = []
+
+    monkeypatch.setattr(
+        "qshare.cnb.upload_to_cnb",
+        lambda path: ("https://e.cnb.cool/demo.zip", "2026-10-10"),
+    )
+    monkeypatch.setattr("qshare.cnb.delete_cnb_assets", lambda tag, name: delete_calls.append((tag, name)) or 1)
+    monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr("builtins.input", lambda value: prompts.append(value) or "")
+
+    assert run_cnb_upload(str(file_path)) == 0
+
+    output = capsys.readouterr().out
+    # No pre-upload confirmation prompt; only the post-upload delete prompt.
+    assert prompts == ["上传完成。是否删除 CNB 上的该文件？输入 n 保留 / Delete the uploaded file from CNB? [Y/n]: "]
+    assert "PUBLIC FILE URL: https://e.cnb.cool/demo.zip" in output
+    # Answering nothing accepts the default: delete the uploaded file on CNB.
+    assert delete_calls == [("2026-10-10", "demo.zip")]
+    # The local file is never touched by the CNB channel.
+    assert file_path.exists()
+
+
+def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path, capsys):
+    from qshare.cli import run_cnb_upload
+
+    file_path = tmp_path / "demo.zip"
+    file_path.write_text("data")
+
+    monkeypatch.setattr(
+        "qshare.cnb.upload_to_cnb",
+        lambda path: ("https://e.cnb.cool/demo.zip", "2026-10-10"),
+    )
+    monkeypatch.setattr(
+        "qshare.cnb.delete_cnb_assets",
+        lambda tag, name: pytest.fail("should not delete the CNB asset"),
+    )
+    monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+
+    assert run_cnb_upload(str(file_path)) == 0
+    assert "已保留 CNB 上的文件" in capsys.readouterr().out
+
+    file_path = tmp_path / "demo.zip"
+    file_path.write_text("data")
+
+    monkeypatch.setattr(
+        "qshare.cnb.upload_to_cnb",
+        lambda path: ("https://e.cnb.cool/demo.zip", "2026-10-10"),
+    )
+    monkeypatch.setattr(
+        "qshare.cnb.delete_cnb_assets",
+        lambda tag, name: pytest.fail("should not delete the CNB asset"),
+    )
+    monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
+
+    assert run_cnb_upload(str(file_path)) == 0
 
 
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
