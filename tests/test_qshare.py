@@ -341,7 +341,6 @@ def test_maybe_open_qr_in_browser_prompts_last_on_windows(monkeypatch, tmp_path)
 
     qrcode = SimpleNamespace(QRCode=QRCode, constants=SimpleNamespace(ERROR_CORRECT_M="M"))
     monkeypatch.setattr("qshare.cli._load_qrcode", lambda: qrcode)
-    monkeypatch.setattr("qshare.cli.os.name", "nt")
     monkeypatch.setattr("qshare.cli.tempfile.gettempdir", lambda: str(tmp_path))
     opened = []
     monkeypatch.setattr("qshare.cli.webbrowser.open", lambda target: opened.append(target) or True)
@@ -352,7 +351,10 @@ def test_maybe_open_qr_in_browser_prompts_last_on_windows(monkeypatch, tmp_path)
 
     url = "https://department.trycloudflare.com/file.zip"
     # The default (empty answer) opens the browser page.
-    maybe_open_qr_in_browser(url)
+    with monkeypatch.context() as windows:
+        windows.setattr("qshare.cli.os.name", "nt")
+        maybe_open_qr_in_browser(url)
+    # Decode the file URI using the actual host platform's path rules.
     assert opened and opened[0].startswith("file:")
     from urllib.parse import urlparse
     from urllib.request import url2pathname
@@ -534,6 +536,41 @@ def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
 
     assert run_cnb_upload(str(file_path)) == 0
+
+
+@pytest.mark.parametrize("answer", ["", "y", "n"])
+def test_run_cnb_upload_windows_only_prompts_for_browser_when_file_kept(monkeypatch, tmp_path, answer):
+    from qshare.cli import run_cnb_upload
+
+    file_path = tmp_path / "demo.zip"
+    file_path.write_text("data")
+    prompts = []
+    delete_calls = []
+    answers = iter([answer, "n"])
+
+    def fake_input(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("qshare.cli.os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr("qshare.cnb.upload_to_cnb", lambda path: ("https://e.cnb.cool/demo.zip", "2026-10-10"))
+    monkeypatch.setattr("qshare.cnb.delete_cnb_assets", lambda tag, name: delete_calls.append((tag, name)) or 1)
+    monkeypatch.setattr("qshare.cli.print_qr_code", lambda url: None)
+    monkeypatch.setattr(
+        "qshare.cli._show_qr_page_windows",
+        lambda url: pytest.fail("the browser must not open after deletion or answering n"),
+    )
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    assert run_cnb_upload(str(file_path)) == 0
+    assert "Delete the uploaded file from CNB?" in prompts[0]
+    if answer == "n":
+        assert delete_calls == []
+        assert len(prompts) == 2
+        assert "Open the QR page in your browser?" in prompts[1]
+    else:
+        assert delete_calls == [("2026-10-10", "demo.zip")]
+        assert len(prompts) == 1
 
 
 def test_install_cloudflared_binary_copies_bundled_binary(monkeypatch, tmp_path, capsys):
