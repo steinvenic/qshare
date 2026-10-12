@@ -549,7 +549,7 @@ def should_run_in_background(answer: str) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Quickly share a local file over a public TryCloudflare tunnel.",
+        description="Share a local file via CNB upload by default, or use --cf for a TryCloudflare tunnel.",
         prog="qshare",
     )
     parser.add_argument("file", help="Local file to share publicly.")
@@ -557,14 +557,14 @@ def build_parser() -> argparse.ArgumentParser:
         "-t",
         "--ttl",
         default="2h",
-        help="How long the tunnel remains active. Examples: 2h, 30m, 90s, or 600 (seconds).",
+        help="For --cf only: tunnel lifetime (default: 2h). Examples: 2h, 30m, 90s, or 600 (seconds).",
     )
     parser.add_argument(
         "-p",
         "--port",
         type=int,
         default=None,
-        help="Optional fixed port for the local HTTP server. A random free port is used when omitted.",
+        help="For --cf only: optional local HTTP port. A free port is used when omitted or occupied.",
     )
     parser.add_argument(
         "--cf",
@@ -574,7 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cnb",
         action="store_true",
-        help="Upload the file to the configured CNB release (the default behaviour).",
+        help="Upload to CNB (default). Kept files are stored for 3 days; you can delete the upload immediately at the prompt.",
     )
     return parser
 

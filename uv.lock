@@ -449,7 +449,7 @@ wheels = [
 
 [[package]]
 name = "qshare"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "." }
 dependencies = [
     { name = "qrcode", version = "7.3.1", source = { registry = "https://mirrors.ustc.edu.cn/pypi/web/simple" }, marker = "python_full_version < '3.7'" },

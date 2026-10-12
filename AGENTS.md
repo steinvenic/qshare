@@ -2,7 +2,9 @@
 
 ## Project Structure & Module Organization
 
-qshare is a small Python command-line package for sharing one local file through a TryCloudflare tunnel. Application code lives in `src/qshare/`: `cli.py` owns argument parsing, local HTTP serving, tunnel lifecycle, and QR output; `cnb.py` implements the optional CNB upload channel. `__main__.py` supports `python -m qshare`. Put unit and integration-style tests in `tests/test_qshare.py`; add focused test modules only when the test surface grows. `scripts/build_platform_wheels.py` post-processes built wheels to add platform-specific `cloudflared` binaries. Distribution artifacts belong in `dist/` and are generated, not hand-edited.
+qshare is a small Python command-line package for sharing one local file through CNB uploads by default, with an optional TryCloudflare tunnel selected by `--cf`. Application code lives in `src/qshare/`: `cli.py` owns argument parsing, CNB prompts, local HTTP serving, tunnel lifecycle, and QR output; `cnb.py` implements CNB upload and deletion. `__main__.py` supports `python -m qshare`. Put unit and integration-style tests in `tests/test_qshare.py`; add focused test modules only when the test surface grows. `scripts/build_platform_wheels.py` post-processes built wheels to add platform-specific `cloudflared` binaries for `--cf`. Distribution artifacts belong in `dist/` and are generated, not hand-edited.
+
+Keep `README.md`, `README.en.md`, `SKILL.md`, CLI help, and package descriptions consistent: CNB is the default, kept CNB files have a default 3-day retention, and only CNB supports immediate manual deletion of the current upload. The deletion prompt defaults to delete (Enter or `y`); `n` keeps the remote file. Local files are never deleted. `--cf` defaults to a 2-hour tunnel, and `--ttl`/`--port` apply only to that channel. PyPI uses `README.md` as the long description; publish a new version to update its project documentation.
 
 ## Build, Test, and Development Commands
 
@@ -31,4 +33,4 @@ Recent history favors brief, imperative subjects such as `add CNB upload channel
 
 ## Security & External Services
 
-Treat public sharing and CNB uploads as security-sensitive. Do not weaken the explicit CNB confirmation or tunnel URL validation without tests and a clear rationale. Never add credentials, private URLs, or sample sensitive files to the repository; test external-service paths through mocks.
+Treat public sharing and CNB uploads as security-sensitive. Running the default command starts a CNB upload immediately; preserve the explicit post-upload deletion prompt and tunnel URL validation. Never add credentials, private URLs, or sample sensitive files to the repository; test external-service paths through mocks.
