@@ -2,6 +2,8 @@
 
 Share one local file with one command, without an account or login. By default,
 qshare uploads it to a CNB Release and displays a public download URL and QR code.
+The default CNB channel is a private tool requiring a password on first use. After
+successful verification, the current device remembers it and skips the password and notice.
 CNB files kept after upload are stored for 3 days by default; you can also manually
 delete the current upload immediately at the post-upload prompt. Add `--cf` to serve
 the file from your own machine through a TryCloudflare tunnel.
@@ -13,6 +15,7 @@ the file from your own machine through a TryCloudflare tunnel.
 - No account or login required
 - One-command sharing of a local file
 - CNB uploads by default, with upload progress
+- One-time password verification for the default private CNB channel
 - CNB storage for 3 days by default, with immediate manual deletion after upload
 - Optional `--cf` tunnel sharing with a configurable TTL, two hours by default
 - Prominent public URL and terminal QR code
@@ -47,9 +50,32 @@ qshare /path/to/file.zip
 qshare /path/to/file.zip --cnb
 ```
 
-Both commands upload to a CNB Release. qshare shows upload progress, then a prominent
-`PUBLIC FILE URL` download link and terminal QR code. Running the command starts the
-upload immediately; there is no additional confirmation before uploading.
+Both commands upload to the configured [CNB Release](https://cnb.cool/steinveni/qshare1).
+The default CNB channel is a private tool. On first use, qshare explains that a
+password is required, that you can fork this project and add your own CNB token,
+or that you can add `--cf` to use the CF channel. Password input is hidden. After
+successful verification, the current device saves its verification status and no
+longer asks for the password or shows that notice. A wrong password or cancellation
+stops before uploading.
+
+To use your own CNB, fork this project and set your repository and token through
+environment variables. Your own token does not require the private tool's password:
+
+```bash
+export QSHARE_CNB_REPO=your-name/your-repo
+export QSHARE_CNB_TOKEN=your-own-cnb-token
+qshare /path/to/file.zip
+```
+
+In Windows PowerShell, set the same variables with `$env:QSHARE_CNB_REPO` and
+`$env:QSHARE_CNB_TOKEN`. Manage retention separately for your own repository.
+Alternatively, run `qshare /path/to/file.zip --cf` without a CNB password or token.
+
+qshare shows upload progress, then a prominent `PUBLIC FILE URL` download link and
+terminal QR code. After verification or when using your own token, the command
+starts uploading without an additional upload confirmation. Verification status
+is saved in the current OS user's configuration directory and contains no password.
+A new device, OS user, or cleared verification state requires verification again.
 
 After upload, qshare asks whether to immediately delete **the file just uploaded to CNB**:
 

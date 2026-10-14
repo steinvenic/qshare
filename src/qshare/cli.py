@@ -551,6 +551,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Share a local file via CNB upload by default, or use --cf for a TryCloudflare tunnel.",
         prog="qshare",
+        epilog="The default CNB channel is a private tool and requires a password on first use. "
+        "Fork the project and configure QSHARE_CNB_REPO / QSHARE_CNB_TOKEN to use your own CNB, "
+        "or add --cf to use TryCloudflare.",
     )
     parser.add_argument("file", help="Local file to share publicly.")
     parser.add_argument(
@@ -620,6 +623,9 @@ def run_cnb_upload(file_path: str) -> int:
     if not source.is_file():
         raise FileNotFoundError("File not found: {}".format(source))
     from .cnb import upload_to_cnb
+    from .cnb_auth import ensure_cnb_access
+
+    ensure_cnb_access()
 
     print("Uploading file to CNB Release; the file will be stored there.", flush=True)
     public_url, tag = upload_to_cnb(str(source))

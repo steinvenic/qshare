@@ -9,8 +9,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import Request, urlopen
 
-TOKEN = "67emzlY14b8RDEHMJmuevI6GuON"
-REPO = "steinveni/qshare"
+DEFAULT_TOKEN = "1P1f92f5hWdU4ige9lexfF6ocufB"
+DEFAULT_REPO = "steinveni/qshare1"
+TOKEN = os.environ.get("QSHARE_CNB_TOKEN") or DEFAULT_TOKEN
+REPO = os.environ.get("QSHARE_CNB_REPO") or DEFAULT_REPO
 API = "https://api.cnb.cool/{}".format(REPO)
 ACCEPT = "application/vnd.cnb.api+json"
 CHUNK_SIZE = 1024 * 1024

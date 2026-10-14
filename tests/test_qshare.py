@@ -453,12 +453,21 @@ def test_delete_cnb_assets_removes_matching_assets(monkeypatch):
 
     assert cnb.delete_cnb_assets("2026-10-10", "demo.zip") == 1
     assert calls == [
-        ("https://api.cnb.cool/steinveni/qshare/-/releases", "GET"),
-        ("https://api.cnb.cool/steinveni/qshare/-/releases/7/assets/11", "DELETE"),
+        ("https://api.cnb.cool/steinveni/qshare1/-/releases", "GET"),
+        ("https://api.cnb.cool/steinveni/qshare1/-/releases/7/assets/11", "DELETE"),
     ]
 
 
-def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeypatch, tmp_path, capsys):
+@pytest.fixture
+def verified_cnb(monkeypatch, tmp_path):
+    from qshare import cnb_auth
+
+    state_path = tmp_path / "config" / "qshare" / "cnb-auth.json"
+    monkeypatch.setattr(cnb_auth, "auth_state_path", lambda: state_path)
+    cnb_auth._save_verified(state_path)
+
+
+def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeypatch, tmp_path, capsys, verified_cnb):
     from qshare.cli import run_cnb_upload
 
     file_path = tmp_path / "demo.zip"
@@ -494,7 +503,7 @@ def test_run_cnb_upload_uploads_without_confirmation_then_prompts_delete(monkeyp
     assert browser_prompts == []
 
 
-def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path, capsys):
+def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path, capsys, verified_cnb):
     from qshare.cli import run_cnb_upload
 
     file_path = tmp_path / "demo.zip"
@@ -539,7 +548,7 @@ def test_run_cnb_upload_keeps_cnb_file_when_user_answers_n(monkeypatch, tmp_path
 
 
 @pytest.mark.parametrize("answer", ["", "y", "n"])
-def test_run_cnb_upload_windows_only_prompts_for_browser_when_file_kept(monkeypatch, tmp_path, answer):
+def test_run_cnb_upload_windows_only_prompts_for_browser_when_file_kept(monkeypatch, tmp_path, answer, verified_cnb):
     from qshare.cli import run_cnb_upload
 
     file_path = tmp_path / "demo.zip"

@@ -1,6 +1,6 @@
 # qshare
 
-无需登录账号，一行命令即可分享一个本地文件。默认上传到 CNB Release，生成公网下载链接和二维码；选择保留的 CNB 文件默认保存 3 天，也可在上传完成后的提示处立即手动删除本次上传。添加 `--cf` 可使用 TryCloudflare 隧道，由本机提供文件。
+一行命令即可分享一个本地文件。默认上传到 CNB Release，生成公网下载链接和二维码；默认 CNB 渠道为私人工具，首次使用需要验证密码，验证成功后本机后续使用不再询问或显示该提示。选择保留的 CNB 文件默认保存 3 天，也可在上传完成后的提示处立即手动删除本次上传。添加 `--cf` 可使用 TryCloudflare 隧道，由本机提供文件。
 
 [English](https://github.com/steinvenic/qshare/blob/main/README.en.md) · [PyPI](https://pypi.org/project/qshare/) · [Agent skill](https://github.com/steinvenic/qshare/blob/main/SKILL.md)
 
@@ -9,6 +9,7 @@
 - 无需注册或登录账号
 - 一行命令快速分享本地文件
 - 默认使用 CNB 上传，显示上传进度
+- 默认 CNB 渠道首次使用验证密码，本机验证通过后自动记住
 - CNB 文件默认保存 3 天，支持上传后立即手动删除
 - 可选 `--cf` 隧道分享，默认有效期 2 小时，可通过 `--ttl` 调整
 - 结果链接醒目显示，并提供终端二维码
@@ -39,7 +40,19 @@ qshare /path/to/file.zip
 qshare /path/to/file.zip --cnb
 ```
 
-这两条命令均上传到 CNB Release。上传过程中显示进度，成功后显示醒目的 `PUBLIC FILE URL` 下载链接及终端二维码。上传前不会再询问确认，执行命令即开始上传。
+这两条命令均上传到 [CNB Release](https://cnb.cool/steinveni/qshare1)。默认 CNB 渠道为私人工具，首次使用会提示需要验证密码，并告知可 fork 本项目添加自己的 CNB token，或加上 `--cf` 使用 CF 通道。密码输入不会回显；验证成功后保存本机验证状态，后续使用不再需要密码或显示该提示。密码错误或取消时不会上传。
+
+可以 fork 本项目，通过环境变量配置自己的 CNB 仓库和 token；使用个人 token 时不需要默认私人工具的密码：
+
+```bash
+export QSHARE_CNB_REPO=your-name/your-repo
+export QSHARE_CNB_TOKEN=your-own-cnb-token
+qshare /path/to/file.zip
+```
+
+Windows PowerShell 可使用 `$env:QSHARE_CNB_REPO` 和 `$env:QSHARE_CNB_TOKEN` 设置相同变量。个人仓库需自行管理文件保留策略。也可直接执行 `qshare /path/to/file.zip --cf`，使用无需 CNB 密码或 token 的 CF 通道。
+
+上传过程中显示进度，成功后显示醒目的 `PUBLIC FILE URL` 下载链接及终端二维码。首次验证通过或使用个人 token 后，执行命令即开始上传，无需额外上传确认。验证状态只保存在当前系统用户的配置目录中，不保存密码。更换设备、系统用户或清除验证状态后，需要重新验证。
 
 上传完成后，程序询问是否立即删除 **本次上传到 CNB 的文件**：
 

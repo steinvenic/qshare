@@ -5,8 +5,8 @@ from setuptools import find_packages, setup
 
 setup(
     name="qshare",
-    version="0.4.3",
-    description="Share local files via CNB uploads by default, or an optional TryCloudflare tunnel.",
+    version="0.4.4",
+    description="Share files via a private CNB channel with first-use verification, or a TryCloudflare tunnel.",
     long_description=Path(__file__).with_name("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     author="steinvenic",

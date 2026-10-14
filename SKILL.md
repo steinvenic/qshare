@@ -1,6 +1,6 @@
 ---
 name: qshare
-description: Share one local file through a public download URL or QR code using CNB uploads by default, with 3-day retention and immediate manual deletion, or an optional TryCloudflare tunnel.
+description: Share one local file through a public download URL or QR code using a private CNB channel with first-use verification, 3-day retention and immediate deletion, or an optional TryCloudflare tunnel.
 metadata:
   openclaw:
     homepage: https://github.com/steinvenic/qshare
@@ -19,7 +19,9 @@ metadata:
 # qshare
 
 Use this skill when the user asks to make one local file available through a public
-download URL or QR code. qshare uploads to a CNB Release by default. Files kept in
+download URL or QR code. qshare uploads to a CNB Release by default. The default
+CNB channel is a private tool requiring one-time password verification; the current
+device remembers successful verification and skips the password and notice later. Files kept in
 CNB are stored for 3 days by default, and the current upload can be manually deleted
 immediately at the post-upload prompt. Only the CNB channel supports deleting
 uploaded files. Add `--cf` when the user chooses to serve the file from their own
@@ -40,8 +42,15 @@ machine through a temporary TryCloudflare tunnel.
    qshare "/path/to/file.zip"
    ```
 
-   `--cnb` explicitly selects the same default channel. The upload starts
-   immediately without a pre-upload confirmation. `--ttl` and `--port` apply
+   `--cnb` explicitly selects the same default channel. On first use of the
+   default private CNB, let the user enter the password privately in a terminal.
+   Do not put a password in commands, documentation, logs, or chat, and do not
+   guess or bypass verification. For non-interactive runs, use an already verified
+   local configuration, the user's own CNB token, or `--cf` when authorized.
+   Users can fork this project and configure `QSHARE_CNB_REPO` plus their own
+   `QSHARE_CNB_TOKEN`; their own token does not require the private tool's password.
+   After verification, the upload starts without a pre-upload confirmation.
+   `--ttl` and `--port` apply
    only to `--cf`; they do not change CNB retention.
 4. Handle the post-upload deletion prompt according to the user's intent:
    - To leave a working download link, answer `n` to keep the file. CNB stores

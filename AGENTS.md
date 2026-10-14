@@ -6,6 +6,8 @@ qshare is a small Python command-line package for sharing one local file through
 
 Keep `README.md`, `README.en.md`, `SKILL.md`, CLI help, and package descriptions consistent: CNB is the default, kept CNB files have a default 3-day retention, and only CNB supports immediate manual deletion of the current upload. The deletion prompt defaults to delete (Enter or `y`); `n` keeps the remote file. Local files are never deleted. `--cf` defaults to a 2-hour tunnel, and `--ttl`/`--port` apply only to that channel. PyPI uses `README.md` as the long description; publish a new version to update its project documentation.
 
+The bundled CNB channel is private and requires first-use password verification before upload. Persist verification for the current OS user and suppress the first-use notice thereafter. Use hidden password input and a salted verifier; never add the plaintext password to code, tests, documentation, help, or logs. `--cf` and a user's own `QSHARE_CNB_TOKEN` bypass the private-channel verification. `QSHARE_CNB_REPO` selects their repository.
+
 ## Build, Test, and Development Commands
 
 Create an isolated environment and install the package in editable mode:
